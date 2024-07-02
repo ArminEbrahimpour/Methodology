@@ -66,6 +66,25 @@
 
 #### if <font color="red">Stored</font> : 
 
+### <font color="red">Mutation XSS</font> :
+#### mXSS attacks are possible against all major browsers today. They rely on developing a deep understanding of methods by which the browser performs optimizations and conditionals when rendering DOM nodes.
+
+#### mXSS functions by making use of filter-safe payloads that eventually mutate into unsafe payloads after they have passed filtration.
+
+#### for example in DOMPurify library which google used for securing against xss attacks if you used the payload :
+	<noscript><p title="</noscript><img src=x onerror=alert(1)>">
+#### it would turn to :
+	<noscript><p title=" </noscript>
+	`<img src="x" onerror="alert(1)"`>
+	"">
+	"
+#### The reason this happened is because DOMPurify uses a root element `<template`> in its sanitization process. The `<template`> tag is parsed but not rendered, so it is ideal for use in sanitization.
+
+#### Inside of a `<template`> tag, element scripting is disabled. When scripting is disabled, the `<noscript`> tag represents its children elements, but when scripting is enabled it does nothing.
+
+#### In other words, the img onerror is not capable of script execution inside of the sani‐tizer, but when it passed sanitization and moved to a real browser environment the 
+`<p title=" 
+#### was ignored and the img onerror became valid.
 
 
 
@@ -131,6 +150,11 @@
 
 ## <font color="red">Mechanism</font>:
 #### Extensible markup language is designed for storing and transporting data.
+#### This classification of attack relies on an improperly configured XML parser within an application’s code.
+
+#### <font color="green">NOTE </font>: almost all xxe attack vulnerabilities are found as a result of an API endpoint that accepts an xml (or xml like ) payload. xml like formats include SVG, HTML, DOM, PDF(XFDF), and RTF.
+
+
 #### XML documents can contain a document type definition (DTD), which defines the structure of an XML document and the data it contains. These DTDs can be loaded from external sources or declared in the document itself within a DOCTYPE tag. For example, here is a DTD that defines an XML entity called file:
 	<?xml version="1.0" encoding="UTF-8"?>
 	<!DOCTYPE example [
@@ -146,6 +170,9 @@
 	]>
 	<example>&file;</example>
 #### The issue is hat if users can control the values of XML entities or external entities, they might be able to disclose internal files, port-scan internal machines, or launch DoS attacks.
+
+#### <font color="green">NOTE </font>: Sometimes an xxe attack can be used against an endpoint that does not directly operate on a user-submitted xml object.
+
 
 ### <font color="red">Prevention</font>:
 #### The mechanisms for disabling DTD processing and configuring parser behavior vary based on the XML parser in use. For example, if you’re using the default PHP XML parser, you need to set libxml_disable_entity _loader to TRUE to disable the use of external entities. 
@@ -1287,6 +1314,33 @@ automatically or after the required user interactions.
 ## <font color="red"></font >
 
 # <font color="red">JWT VULNS </font>
+## 3 new attacks (blackhat confrence) [video][https://www.youtube.com/watch?v=mJ6BQ5eFkG4]
+### prior jwt attacks :
+#### 1. Bypass signature validation by providing  a token signed with "none" algorithm
+#### 2. Bypass blocklist filter by "nOne"...
+
+#### 3. Algorithm confusion: using an RSA public key as an HMAC secret key
+
+#### 4. Key injection/ self-signed jwt : putting your own key in the jwk header
+
+#### 5. Classic crypto attacks against primitive : RSA padding oracle; Curve Swap 
+
+#### 6. Probably most common : simple dictionary words being used as cryptography keys
+### new Attack
+#### 1.sign /encrypt confusion:
+#### there is 3 jwt flavor
+##### 1- jwt in jws format 
+##### 2- jwt in jwe format 
+##### 3- nested jwt (jws in jwe pattern)
+
+
+![alt text](./statics/jwtflavors.png)
+### 2. polyglot Attack 
+
+![alt text](./statics/jwt-polyglot-attack.png)
+
+
+- [ ] https://www.linkedin.com/embed/feed/update/urn:li:ugcPost:6966034357190823936?source=post_page-----caaf7ea58aa--------------------------------
 
 # <font color="red">IDOR</font>
 
@@ -1410,7 +1464,7 @@ automatically or after the required user interactions.
 
 
 
-# <font color="red"> COMMAND INJ..</font>
+# <font color="red"> COMMAND INJ</font>
 
 
 
