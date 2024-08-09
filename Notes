@@ -1,0 +1,136 @@
+
+
+
+
+    # using masscan you could find the open ports of range IPs and 
+
+    # reverse IP lookup site(securitytrails)
+
+    # masscan for portscanning (naabo or nmap) 
+
+    # split [file-name] --verbose -l1000000  target.
+find . -name 'target.*' | wc -l -> [number]
+find . -name 'target.*' | interlace -threads [number] -c "shuffledns -t 30000 -l  _target_ -r resolver.txt >> shuffledns.res" -v --no-bar
+
+    # alterx (yashar said it is a very good tool)
+
+
+    # gobuster ham fuzzer mesle inke
+
+
+    # favicon search https://favicon-hash.kmsec.uk/
+        favhash(tools)
+        https://github.com/edoardottt/favirecon
+        
+ 
+    # for resolvers
+        https://github.com/trickest/resolvers
+
+
+    # abuseIPDB bash script
+        #!/bin/bash
+        abusedb(){
+        cookie_header="Cookie: cookie_consent_functional=allow; cookie_consent_analytical=allow; _ga_MBHS9QPB71=GS1.1.1691614703.7.1.1691615497.0.0.0; _ga=GA1.2.1806797756.1691428565; _ga_NL1PG6T2D0=GS1.1.1691614703.7.1.1691615497.0.0.0; cf_clearance=lA4pSoazPal288SKbFnm7aB7cfXl0Wi6VFAyM.DTrAQ-1691615208-0-1-c18904d3.6f4824ec.96885b33-250.2.1691615126; _gid=GA1.2.928789359.1691428567; _ga_J0NQ3TGFDJ=GS1.2.1691614704.5.1.1691615327.36.0.0; XSRF-TOKEN=eyJpdiI6InpVUmpGSHZKZHJaRllBMWJ
+        
+        subenum
+        		curl -s "https://www.abuseipdb.com/whois/$domain" -H "user-agent: firefox" -b "abuseipdb_session=" | grep -E '<li>\w.*</li>' | sed -E 's/<\/?li>//g' | sed -e "s/$/.$domain/" | sort -u > tmp-abuseipdb-$domain
+
+
+
+
+
+
+
+
+    # all subdomain enumeration in one github https://github.com/bing0o/SubEnum/
+
+
+    # for subdomain discovery https://columbus.elmasy.com/api/lookup/ford.com
+
+    # https://github.com/gwen001/gitlab-subdomains 
+ 
+    # google dork for finding subdomains  (site:crunchbase.com "acquired by Walmart")
+
+
+    # first use dnsx then use httpx for more speed 
+
+    # wide recon voorivex https://sidxparab.gitbook.io/subdomain-enumeration-guide/active-enumeration/dns-bruteforcingi
+
+
+
+    # https://pastebin.com/PF0AQjx7
+
+
+
+    # httpx updated a new switch which catch screenshot and there is no need for eyewitness
+
+    # befor using httpx you could use dnsx which can speed up your process
+
+    # Subdomain TakeOver:
+        the most impacful thing is to takeover the nameserver in that case we can redirect any
+        client to the IP we wanted 
+
+        # tools
+            subjack and dnsReaper
+
+            subjack is older and it's fingerprint is older and we could use the fingerprints of https://github.com/EdOverflow/can-i-take-over-xyz 
+            but you need to change that into the array for subjack to use them
+
+
+
+
+    # directory fuzzing 
+        cewl wordlist generator for this fuzz(you could use this to change the tool in the way you want )
+
+    # sourosh dalili built a tool for IIS which https://github.com/irsdl/IIS-ShortName-Scanner this is a great tool
+
+
+    # crawling (katana and gobuster) katana is very great tool for finding things and it has so many feathers you could use 
+
+    # fingerPrinting web Application 
+        # server header disclosure
+        # errors
+        # tools like : WhatWeb,Webanalyzer,Wapplyzer
+
+        # what web could get some issues which you could use these commands :
+                sudo apt install libyaml-dev
+                sudo apt update
+                sudo apt install ruby-full
+
+                # Install Bundler
+                sudo gem install bundler
+
+        # if the web is using jquery in console $().jquery something like this
+
+
+    # what is the difference between cve and cwe ?
+        cwe is kolli tare 
+        cve is more specific 
+
+    # serachexploit tool is used for serching after finding applications and those versions and read about them 
+    # another tool is cvemap which is something like the searchexploit
+    #   mitre cve database
+        and some more which is in the notion of miniblue team
+
+    # vulnerability scanning 
+        # nuclei 
+            # nuclei-template
+            # or for using fuzzing mode we need to use dast switch
+
+            # more usable switches for nuclei :
+                -id 
+                -tags
+                -as   # for detecting before testing
+                
+                # fuzzing 
+                    nuclei -as -tags rce -target https://example.com
+                    nuclei -dast -target https://example.com   ; for fuzzing 
+
+    # cloud enumeration
+       in the notion mentioned about this shit
+
+        https://github.com/sa7mon/S3Scanner  
+        oss ali baba
+
+
+ 
