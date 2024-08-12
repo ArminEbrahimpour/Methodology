@@ -121,7 +121,10 @@
 		{"id":"d581c242424e7048","type":"text","text":"## shodan.io/domain/${domain}","x":8090,"y":-8480,"width":250,"height":100},
 		{"id":"4a2b80618eeb4a6a","type":"text","text":"# ASN","x":8530,"y":-8460,"width":160,"height":60},
 		{"id":"f5eb974bc008863f","type":"text","text":"# shodan","x":7800,"y":-8320,"width":183,"height":60},
-		{"id":"60e2fe374ed74667","type":"text","text":"# search bar result","x":8090,"y":-8260,"width":250,"height":80}
+		{"id":"60e2fe374ed74667","type":"text","text":"# search bar result","x":8090,"y":-8260,"width":250,"height":80},
+		{"id":"2fe843fd4fcee199","x":-6149,"y":-10000,"width":389,"height":236,"type":"text","text":"# FingerPrinting \n\nusing wapplyzer, whatweb, webAnalyzer\n\nserver header , forcing occuring Errors, ...\n"},
+		{"id":"f0d8f53c3764bed0","x":-6149,"y":-9645,"width":389,"height":1165,"type":"text","text":"# Detecting known vulnerabilities \n\nnce we have the version information of a particular software, such as PHPMyAdmin in our previous example, we can use this information to search for publicly available vulnerabilities or exploits associated with\nPHPMyAdmin 4.8.1. \n\ncommand :\n```\nsearchsploit phpmyadmin -s 4.8.1 -w\n```\n\nIt can also be used to search for a specific CVE. To do so, we will use “--cve” flag followed by the CVE number.\n\n```\nsearchsploit --cve 2021-44444\n```\n\nMITRE’s CVE Database [https://cve.mitre.org/]: Mitre is the primary database for CVEs, maintained by MITRE. It’s a standard reference for publicly disclosed cybersecurity  lnerabilities, widely used by various security tools.\n\nPacketstorm [packetstormsecurity.com]: Packetstorm is known for providing  etailed information about exploits,  ncluding proof-of-concept (POC) examples.\n\nSecurityFocus (Bugtraq)  https://seclists.org/bugtraq]: Although Bugtraq has been shut down, its archives remain a valuable resource for historical exploit data along with POC.\n\nNOTE : another tool is called `cvemap` which is like searchexploit"},
+		{"id":"6c810bd9fb898f10","x":-8830,"y":-9940,"width":390,"height":631,"type":"text","text":"# nuclei \n```\n\nnuclei \n            # nuclei-template\n            # or for using fuzzing mode we need to use dast switch\n\n            # more usable switches for nuclei :\n                -id \n                -tags\n                -as   # for detecting before testing\n                \n                # fuzzing \n                    nuclei -as -tags rce -target https://example.com\n                    nuclei -dast -target https://example.com   ; for fuzzing \n```\n"}
 	],
 	"edges":[
 		{"id":"d07cd314c775af3d","fromNode":"7da8a6ef39da4f6c","fromSide":"right","toNode":"f5eb974bc008863f","toSide":"left"},
@@ -229,6 +232,9 @@
 		{"id":"dd6f72d8bdcd18d0","fromNode":"e6492365862d97ee","fromSide":"left","toNode":"322be645ddefdad0","toSide":"left"},
 		{"id":"fddbb642f8067f0b","fromNode":"322be645ddefdad0","fromSide":"left","toNode":"4654099419fe1553","toSide":"left"},
 		{"id":"206864837a845697","fromNode":"1d6a9de5c8e58fab","fromSide":"bottom","toNode":"8cf840fde6c71503","toSide":"top"},
-		{"id":"1476f8b27d33acb0","fromNode":"1d6a9de5c8e58fab","fromSide":"bottom","toNode":"4d9beb0c5d4d8a89","toSide":"top"}
+		{"id":"1476f8b27d33acb0","fromNode":"1d6a9de5c8e58fab","fromSide":"bottom","toNode":"4d9beb0c5d4d8a89","toSide":"top"},
+		{"id":"3a1e078b0dcc5b9d","fromNode":"2fe843fd4fcee199","fromSide":"bottom","toNode":"f0d8f53c3764bed0","toSide":"top"},
+		{"id":"06b0aafedbc0f2b9","fromNode":"64b941c60cfccc21","fromSide":"bottom","toNode":"2fe843fd4fcee199","toSide":"top"},
+		{"id":"264b453f5f2cfb5e","fromNode":"64b941c60cfccc21","fromSide":"bottom","toNode":"6c810bd9fb898f10","toSide":"top"}
 	]
 }
