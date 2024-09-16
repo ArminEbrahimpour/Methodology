@@ -155,9 +155,24 @@ note: Please URL encode the payload before injecting or the (+) used for concate
 - [x] https://book.hacktricks.xyz/pentesting-web/xss-cross-site-scripting/js-hoisting
 - [x] https://book.hacktricks.xyz/pentesting-web/xss-cross-site-scripting/some-same-origin-method-execution
 - [ ] https://book.hacktricks.xyz/pentesting-web/xss-cross-site-scripting/dom-xss
-
+ ** stored xss on pdf viewer:
+ - [ ] https://medium.com/@osamaavvan/stored-xss-in-pdf-viewer-9cc5b955de2b 
 
 # <font color="red">RCE</font>
+
+#### RCE in Node.js
+
+In Node.js, functions such as exec and spawn from the child_process module
+are critical.
+some functions like exec 
+
+#### RCE in Flask Application
+imilar to Node.js, there are several functions in Python that can be used
+to dynamically execute code. This includes `eval()`,` exec()`, `pickle.loads()`,
+`os.system()`, `os.popen()`, and many others.
+
+
+
 
 # <font color="red" >XXE</font>
 
@@ -415,6 +430,8 @@ note: Please URL encode the payload before injecting or the (+) used for concate
 
 
 ## <font color="red">Haunt</font>:
+
+note : use turbo intruder (a burp extension ) for testing race condition
 ### <font color="red">step 1-</font >find features prone to race condition :
 #### Most of the time, race conditions occur in features that deal with numbers, such as online voting, online gaming scores, bank transfers,e-commerce payments, and gift card balances. Look for these features in an application and take note of the request involved in updating thesenumbers.
 
@@ -872,6 +889,8 @@ ASCII('m'), SLEEP(5), 0) -- -
 Second-order SQL injection occurs when input is injected into one part of the application, and the output is revealed later. During this process, the application retrieves and uses stored data without proper validation or sanitization.
 
 
+**JWT-Based SQL injection**
+..
 
 
 ## <font color="red">Escalating the vulnerability </font>
@@ -1814,7 +1833,6 @@ Use <!--esi--> to bypass WAFs:
 
 
 ```
-
 # This will reflect the cookies in the response
 <!--esi $(HTTP_COOKIE) -->
 # Reflect XSS (you can put '"><svg/onload=prompt(1)>' URL encoded and the URL encode eveyrhitng to send it in the HTTP request)
@@ -2652,9 +2670,121 @@ Depending on the implementation of unicode normalization (more info [here](https
 
 
 # <font color="red" >SSTI</font>
+## Mechanism:
+emplate engines separate business logic
+from the presentation layer, meaning HTML/CSS is kept separate from
+server-side programming code. This separation makes the code more read-
+able, enhances maintainability, and leads to greater code reusability. Here is
+an example of an HTML template:
+
+```
+<html>
+<head>
+<title> {{page_title}} </title>
+</head>
+<body>
+<h1> {{heading}} </h1>
+<p> {{content}} </p>
+</body>
+</html>
+```
+In this template, {{page_title}}, {{heading}}, and {{content}} are placeholders
+for dynamic content.
+
+**Root cause of Template injection**:
+
+Template engines have features that allow the ability to access internal
+objects and functions.
+Server-side template injection (SSTI) occurs when user-supplied input is
+directly inserted into the template and is interpreted by the template engine
+as code instead of string; his behavior could lead to remote code execu-
+tion (RCE. To exploit this vulnerability, specially crafted strings are injected,
+which will be interpreted as commands or directives by the template engine.
+
+While, there are many template engines, however, some of the famous
+template injections you might frequently encounter in wild are as follows:
+• Smarty (PHP)
+• Blade (PHP, used with Laravel)
+• Pug (formerly Jade, JavaScript)
+• Liquid (Ruby, used by Shopify)
+• Freemarker (Java)
+• Twig (PHP, used with Symfony)
+• Mustache (cross-platform)
+• Jinja2 (Python)
+• Mako(Python)
+
+### Identifying Template injection
+
+To identify SSTI, use a Polyglot payload composed of special charac-
+ters commonly used in template expressions to fuzz the template such as
+“${{<%\[%’ ”}}%\”. In case of a vulnerability, an error message can be
+returned or the exception can be raised by the server. This is one of the signs
+that SSTI might exist.
+
+**Context in Template injections**
+SSTI can occur in two distinct contexts, each requiring its own detection
+method. Even if initial fuzzing or an automated tool suggests the presence of
+SSTI, identifying its context is still necessary in order to exploit it effectively.
+
+- PlainText context:
+In plaintext context, user input is treated as simple text; in other words, it
+is not treated as a code or executable instruction. This means that any input
+you provide will be reflected by the application.
+
+Example:
+```
+https://vulnerablebank.com/?username=Hello {{name}}
+```
+it might be rendered as “Hello rafay”, where “rafay” is treated as plain text.
+An SSTI in this context is less severe, but it still poses indirect risks such as
+XSS, if the input is reflected in a web page without proper escaping.
+This context is often confused with client-side template injection (CSTI)vulnerability.
+
+- Code context:
+
+In code context, the user-supplied input is directly inserted within the code
+blocks or statements, and the template injection subsequently interprets it
+and executes it as code. The consequences in this case could be as severe as
+RCE.
+
+**Identify the Template Engine**
+
+Once template injection has been identified, the next step in exploitation is to
+identify the underlying template engine in use. This step involves submitting
+invalid syntax, which may cause the template engines to malfunction and
+reveal themselves through error messages. However, this technique might
+not be effective when error messages have been disabled on the server end.
+
+In such a situation we can use other technique such as examining the appli-
+cation’s environment, such as known tech stack, or looking for other signs
+in the way it processes template syntax, which can differ from one engine
+to another. A common way of doing this is to inject arbitrary mathemati-
+cal operations using syntax from different template engines and observe
+whether they are successfully evaluated. 
+![](./statics/ssti_template_identify.png)
+
+### Exploiting Template Injection:
+
+**Identification of Template Language (Jinja2)**
+The next step would be to identify the underlying templating engine. From
+the previous decision tree, we know that the payload “{{7 * ’7’}}” would
+result in “49” in Twig (PHP) and “7777777” in Jinja2 (Python).
+
+**Exploiting for RCE**
+
+he template engine is Jinja2. Now, using the
+payload provided in the following, we will attempt RCE. To accomplish
+this, we will utilize the Popen function within the “os” module to executeshell commands. The read() function is then called to read the output of the “whoami” command.
+payload:
+```
+{{namespace.__init__.__globals__.os.popen('whoami').
+read()}}
+```
+
 
 
 # <font color="red">CSTI</font>
+
 
 # <font color="red">SSRF</font>
 
@@ -3264,6 +3394,82 @@ automatically or after the required user interactions.
 	inurl:destination site:example.com
 	inurl:next site:example.com
 
+### common injection parameters:
+```
+/{payload}
+?next={payload}
+?url={payload}
+?target={payload}
+?rurl={payload}
+?dest={payload}
+?destination={payload}
+?redir={payload}
+?redirect_uri={payload}
+?redirect_url={payload}
+?redirect={payload}
+/redirect/{payload}
+/cgi-bin/redirect.cgi?{payload}
+/out/{payload}
+/out?{payload}
+?view={payload}
+/login?to={payload}
+?image_url={payload}
+?go={payload}
+?return={payload}
+?returnTo={payload}
+?return_to={payload}
+?checkout_url={payload}
+?continue={payload}
+?return_path={payload}
+success=https://c1h2e1.github.io
+data=https://c1h2e1.github.io
+qurl=https://c1h2e1.github.io
+login=https://c1h2e1.github.io
+logout=https://c1h2e1.github.io
+ext=https://c1h2e1.github.io
+clickurl=https://c1h2e1.github.io
+goto=https://c1h2e1.github.io
+rit_url=https://c1h2e1.github.io
+forward_url=https://c1h2e1.github.io
+@https://c1h2e1.github.io
+forward=https://c1h2e1.github.io
+pic=https://c1h2e1.github.io
+callback_url=https://c1h2e1.github.io
+jump=https://c1h2e1.github.io
+jump_url=https://c1h2e1.github.io
+click?u=https://c1h2e1.github.io
+originUrl=https://c1h2e1.github.io
+origin=https://c1h2e1.github.io
+Url=https://c1h2e1.github.io
+desturl=https://c1h2e1.github.io
+u=https://c1h2e1.github.io
+page=https://c1h2e1.github.io
+u1=https://c1h2e1.github.io
+action=https://c1h2e1.github.io
+action_url=https://c1h2e1.github.io
+Redirect=https://c1h2e1.github.io
+sp_url=https://c1h2e1.github.io
+service=https://c1h2e1.github.io
+recurl=https://c1h2e1.github.io
+j?url=https://c1h2e1.github.io
+url=//https://c1h2e1.github.io
+uri=https://c1h2e1.github.io
+u=https://c1h2e1.github.io
+allinurl:https://c1h2e1.github.io
+q=https://c1h2e1.github.io
+link=https://c1h2e1.github.io
+src=https://c1h2e1.github.io
+tc?src=https://c1h2e1.github.io
+linkAddress=https://c1h2e1.github.io
+location=https://c1h2e1.github.io
+burl=https://c1h2e1.github.io
+request=https://c1h2e1.github.io
+backurl=https://c1h2e1.github.io
+RedirectUrl=https://c1h2e1.github.io
+Redirect=https://c1h2e1.github.io
+ReturnUrl=https://c1h2e1.github.io
+```
+
 ### Bypassing OR protectoin:
 
 #### using browser auto correct :
@@ -3433,6 +3639,7 @@ automatically or after the required user interactions.
 #### • Starts with AC ED 00 05 in hex or rO0 in base64. (You might see these within HTTP requests as cookies or parameters.)
 #### • The Content-Type header of an HTTP message is set to application/x-java-serialized-object.
 
+### <font color="green"> sorush Dalili : </font> for learning deserialization attacks for .net remoting in binary : this tool from james forshaw: github.com/tyranid/ExploitRemotingService   for .net remoting over http(soap) see this lab github.com/nccgroup/VulnerableDotNetHTTPRemoting      for .net in general, references in here are useful : github.com/pwntester/ysoserial.net  for PHP deserialization, this can be a useful example: nickbloor.co.uk/2018/02/28 (not valid url ) but POPping wordpress is a key word to it
 
 
 ## <font color="red">Mechanism</font >
@@ -4200,3 +4407,34 @@ in this example we're asking the proxy to treat X-Foo and x-Bar as hop-by-hop, m
 #### this one is a little out there but bear with me. some Systems give users the ability to define requests that will be performed by the server side , such as when adding webhooks or similar. while it is not normal for if you're able to add custom headers, you could try adding a `Connection` header and seeing if it is accepted along with your hop-by-hop headers.
 
 #### Otherwise, if you have an exploitable SSRF vulnerability in a system, adding this technique could reveal more information or help make the SSRF more impactful. You would likely need the ability to inject headers along with the SSRF though, which is fairly rare.
+
+
+# <font color="red">psp</font>(business logic)
+
+
+### psp process :
+
+#### <font color="red">Before payment process</font>:
+- price manipulation
+	- Raw price
+	- Encrypted price
+
+- Quantity param manipulation
+- Race condition
+	- coupon code
+- Logic Flow Error
+
+
+
+#### <font color="red">after payment process (callback)</font>
+
+- Race condition
+- IDOR
+- XSS
+- Logic Flow Error
+
+Note : use logger++ in your pentesting it helps you alot 
+
+
+![](./statics/PSP1.jpg)
+
