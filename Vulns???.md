@@ -3600,10 +3600,113 @@ ReturnUrl=https://c1h2e1.github.io
 #### The process of looking for nosql injection is similar to detecting SQL injections. You can insert special characters such as quotes (" ' ), semicolon (;), and backslash (\\) , as well as parentheses (()) , brackets (\[]) and braces ({}), into user input fields and look for errors or other anomolies , you can automate the finding process by using the tool NoSQLMap 
 
 #### By validating user input and avoiding dangerous database functions  developers can prevent Nosql injection attacks . In MongoDB, you can disable the running of server-side JavaScript by using the --noscripting option in the command line or setting the security.javascriptEnabled flag in the configuration file to false. Find more information at https://docs.mongodb.com/ manual/faq/fundamentals/index.html.
-#### dditionally, you should follow the principle of least privilege when assigning rights to applications. This means that applications should run with only the privileges they require to operate. For example, when an application requires only read access to a file, it should not be granted any write or execute permissions. This will lower your risk of complete system compromise during an attack.
+#### additionally, you should follow the principle of least privilege when assigning rights to applications. This means that applications should run with only the privileges they require to operate. For example, when an application requires only read access to a file, it should not be granted any write or execute permissions. This will lower your risk of complete system compromise during an attack.
+
+
+### NoSQL syntax injection
+You can potentially detect NoSQL injection vulnerabilities by attempting to break the query syntax. To do this, systematically test each input by submitting fuzz strings and special characters that trigger a database error or some other detectable behavior if they're not adequately sanitized or filtered by the application.
+
+#### Detecting syntax injection on mongodb
+To test whether the input may be vulnerable, submit a fuzz string in the value of the `category` parameter. An example string for MongoDB is:
+
+```
+`'"`{ ;$Foo} $Foo \xYZ`
+```
+
+after you need to determine which characters are determined . to do that you can inject individual characters 
+
+to confirm conditional behavior send two request one with true condition and another with false condition For example you could use the conditional statements `' && 0 && 'x` and `' && 1 && 'x` :
+
+`https://insecure-website.com/product/lookup?category=fizzy'+%26%26+0+%26%26+'x`
+
+`https://insecure-website.com/product/lookup?category=fizzy'+%26%26+1+%26%26+'x`
+if application behaves differently, this suggest that the false condition impact the query logic but the true condition doesn't 
+
+now if you identified that you can influence boolean conditions , you can attempt to overriding the existing conditions to exploit the vulnerability.
+you can inject a js condition which always return true like : `'||'1'=='1'`
+as the injected condition is always true it enables you to view all the products in any category , including hidden or unknown categories.
+
+```
+#### Warning
+
+Take care when injecting a condition that always evaluates to true into a NoSQL query. Although this may be harmless in the initial context you're injecting into, it's common for applications to use data from a single request in multiple different queries. If an application uses it when updating or deleting data, for example, this can result in accidental data loss.
+```
+
+You could also add a null character after the category value. MongoDB may ignore all characters after a null character. This means that any additional conditions on the MongoDB query are ignored. For example, the query may have an additional `this.released` restriction:
+
+`this.category == 'fizzy' && this.released == 1`
+
+The restriction `this.released == 1` is used to only show products that are released. For unreleased products, presumably `this.released == 0`.
+
+In this case, an attacker could construct an attack as follows:
+
+`https://insecure-website.com/product/lookup?category=fizzy'%00`
+
+This results in the following NoSQL query:
+
+`this.category == 'fizzy'\u0000' && this.released == 1`
+
+If MongoDB ignores all characters after the null character, this removes the requirement for the released field to be set to 1. As a result, all products in the `fizzy` category are displayed, including unreleased products.
+
+### Operator injection on NoSQL
+
+NoSQL databases often use query operators, which provide ways to specify conditions that data must meet to be included in the query result. Examples of MongoDB query operators include:
+
+- `$where` - Matches documents that satisfy a JavaScript expression.
+- `$ne` - Matches all values that are not equal to a specified value.
+- `$in` - Matches all of the values specified in an array.
+- `$regex` - Selects documents where values match a specified regular expression.
+
+You may be able to inject query operators to manipulate NoSQL queries. To do this, systematically submit different operators into a range of user inputs, then review the responses for error messages or other changes.
+
+#### Submiting query operators 
+In JSON messages, you can insert query operators as nested objects. For example, `{"username":"wiener"}` becomes `{"username":{"$ne":"invalid"}}`.
+
+For URL-based inputs, you can insert query operators via URL parameters. For example, `username=wiener` becomes `username[$ne]=invalid`. If this doesn't work, you can try the following:
+1. Convert the request method from `GET` to `POST`.
+2. Change the `Content-Type` header to `application/json`.
+3. Add JSON to the message body.
+4. Inject query operators in the JSON.
+#### Detecting operator injection on mongodb
+
+considering an endpoint which contains a json in the body of the request like :
+
+`{"username":"wiener","password":"peter"}`
+
+test each input with range of operators like:
+
+`{"username":{"$ne":"invalid"},"password":"peter"}
+`
+If the `$ne` operator is applied, this queries all users where the username is not equal to `invalid`.
+
+If both the username and password inputs process the operator, it may be possible to bypass authentication using the following payload:
+
+`{"username":{"$ne":"invalid"}, "password":{"$ne":"invalid"}}`
+as a result of this query which returns all login credentials where both username and password are not equal to `invalid` you're gonna logged into the application as the first user in the collection.
+
+to target an account use this :
+`{"username":{"$in":["admin","administrator","superadmin"]},"password":{"$ne":""}}`
+
+### Exploiting syntax injection to extract data
+
+In many NoSQL databases, some query operators or functions can run limited JavaScript code, such as MongoDB's `$where` operator and `mapReduce()` function. This means that, if a vulnerable application uses these operators or functions, the database may evaluate the JavaScript as part of the query. You may therefore be able to use JavaScript functions to extract data from the database.
+
+#### Identifying field names
+
+For example, to identify whether the MongoDB database contains a `password` field, you could submit the following payload:
+
+`https://insecure-website.com/user/lookup?username=admin'+%26%26+this.password!%3d'`
+
+Send the payload again for an existing field and for a field that doesn't exist. In this example, you know that the `username` field exists, so you could send the following payloads:
+
+`admin' && this.username!='` `admin' && this.foo!='`
+
+If the `password` field exists, you'd expect the response to be identical to the response for the existing field (`username`), but different to the response for the field that doesn't exist (`foo`).
 
 
 
+
+	
 # <font color="red">LDAP INJ..</font>
 
 # <font color="red">XPATH</font>
@@ -4880,3 +4983,8 @@ While attempting to brute-force a login page, you should pay particular attentio
 - In Burp Repeater, click on the pencil icon next to the WebSocket URL. This opens a wizard that lets you attach to an existing connected WebSocket, clone a connected WebSocket, or reconnect to a disconnected WebSocket.
 - If you choose to clone a connected WebSocket or reconnect to a disconnected WebSocket, then the wizard will show full details of the WebSocket handshake request, which you can edit as required before the handshake is performed.
 - When you click "Connect", Burp will attempt to carry out the configured handshake and display the result. If a new WebSocket connection was successfully established, you can then use this to send new messages in Burp Repeater.
+
+
+
+#### Cross site websocket hijacking 
+It happens when we have csrf in the request that attach us to the websocket
